@@ -1,5 +1,3 @@
-include("util.jl")
-
 """
    vbmf_parameters
 
@@ -38,11 +36,11 @@ type vbmf_parameters
 end
 
 """
-    vbmf_init(L::Int, M::Int, H::Int, ca::Float64, cb::Float64, sigma::Float64)
+    vbmf_init(L::Int, M::Int, H::Int; ca::Float64, cb::Float64, sigma::Float64)
 
 Returns an initialized structure of type vbmf_parameters.
 """
-function vbmf_init(L::Int, M::Int, H::Int, ca::Float64, cb::Float64, sigma2::Float64)
+function vbmf_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0, sigma2::Float64 = 1.0)
     params = vbmf_parameters()
 
     params.L = L
@@ -144,7 +142,7 @@ function updateSigma2!(Y::Array{Float64,2}, params::vbmf_parameters)
 end
 
 """
-    vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, est_covs = false, est_var = false)
+    vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
 Estimation of prior covariance cA and cB and of variance sigma can be turned on and off.
@@ -155,10 +153,26 @@ The prior model is following:
     p(B) = N(B|0, C_B), C_B = diag(c_b)
 
 """
-function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, est_covs::Bool = false, est_var::Bool = false)
+function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps::Float64 = 1e-6, est_covs::Bool = false, 
+    est_var::Bool = false, logdir = "", desc = "")
     params = copy(params_in)
+    priors = Dict()
 
-    for i in 1:niter
+    # create the log dictionary
+    log = false
+    if logdir !=""
+        log = true
+        logVar = createLog(params)
+    end
+
+    # choice of convergence control variable
+    convergence_var = :AHat
+    old = getfield(params, convergence_var)
+    d = eps + 1.0 # delta
+    i = 1
+
+    # run the loop for a given number of iterations
+    while ((i <= niter) && (d > eps))
         updateA!(Y, params)
         updateB!(Y, params)
 
@@ -170,7 +184,29 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, est_
         if est_var
             updateSigma2!(Y, params)
         end
+
+        if log
+            updateLog!(logVar, params)
+        end
+
+        # check convergence
+        d = delta(getfield(params, convergence_var), old)
+        old = getfield(params, convergence_var)
+        i += 1
     end    
+
+    # finally, compute the estimate of Y
+    updateYHat!(params)
+
+    # convergence info
+    print("Factorization finished after ", i, " iterations, eps = ", d, "\n")
+
+    # save inputs and outputs
+    if log
+        println("Saving outputs and inputs under ", logdir, "/")
+        saveLog(logVar, Y, params_in, priors, logdir, desc = desc)
+    end
 
     return params
 end
+

@@ -16,3 +16,13 @@ Computes the square of the Frobenius matrix norm ||X||^2_FRO more precisely than
 function norm2(X::Array{Float64,2})
     return sum(X.^2)
 end
+
+
+"""
+   delta(new, old) 
+
+Computes delta for convergence control for a given variable.
+"""
+function delta(new, old)
+    return norm(old - new)/norm(old)
+end
