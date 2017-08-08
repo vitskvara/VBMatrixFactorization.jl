@@ -3,7 +3,7 @@
 
 Initializes the log dictionary for iteration progress data storage.
 "
-function createLog(params)
+function create_log(params)
     logVar = Dict()
 
     # iterate through the params type and create apropriate fields
@@ -29,7 +29,7 @@ end
 
 Concatenates all arrays and floats from params to an existing log dictionary.
 "
-function updateLog!(logVar::Dict{Any,Any}, params)
+function update_log!(logVar::Dict{Any,Any}, params)
     # iterate through the params type and create apropriate fields
     for name in fieldnames(params)
         strname = string(name)
@@ -50,7 +50,7 @@ end
 Saves the log dictionary and inputs to a .jld file specified in logdir.
 Name of the log is date_time if unspecified, or desc.
 "
-function saveLog(logVar::Dict{Any, Any}, Y, params, priors, logdir::String; desc::String = "")
+function save_log(logVar::Dict{Any, Any}, Y, params, priors, logdir::String; desc::String = "")
     # if no description given, create it from current datetime
     if desc == ""
         desc = Dates.format(now(), "yyyymmdd_HHMMSS")
@@ -71,7 +71,7 @@ end
 Saves the log dictionary to a .jld file specified in logdir.
 Name of the log is date_time if unspecified, or desc.
 "
-function loadLog(path::String)
+function load_log(path::String)
     try
         logVar = load(string(path, "/log.jld"))
         inputs = load(string(path, "/inputs.jld"))
@@ -93,7 +93,7 @@ end
 
 Extracts a single slice with index t from the log dictionary variable given an initialized params type variable.
 "
-function extractParams!(logVar::Dict, t::Integer, params)
+function extract_params!(logVar::Dict, t::Integer, params)
     for name in fieldnames(params)
         strname = string(name)
 

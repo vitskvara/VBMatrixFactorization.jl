@@ -8,8 +8,8 @@ Compound type for vbmf computation. Contains the following fields:\n
     H::Int - internal product dimension
     AHat::Array{Float64, 2} - mean value of A, size (M, H)
     BHat::Array{Float64, 2} - mean value of B, size (L, H)
-    SigmaAHat::Array{Float64, 2} - covariance of A, size (H, H)
-    SigmaBHat::Array{Float64, 2} - covariance of B, size (H, H)
+    SigmaA::Array{Float64, 2} - covariance of A, size (H, H)
+    SigmaB::Array{Float64, 2} - covariance of B, size (H, H)
     CA::Array{Float64, 2} - prior covariance of A, size (H, H)
     CB::Array{Float64, 2} - prior covariance of B, size (H, H)
     invCA::Array{Float64, 2} - inverse of cA
@@ -23,8 +23,8 @@ type vbmf_parameters
     H::Int
     AHat::Array{Float64, 2}
     BHat::Array{Float64, 2}
-    SigmaAHat::Array{Float64, 2}
-    SigmaBHat::Array{Float64, 2}
+    SigmaA::Array{Float64, 2}
+    SigmaB::Array{Float64, 2}
     CA::Array{Float64, 2}
     CB::Array{Float64, 2}
     invCA::Array{Float64, 2}
@@ -48,8 +48,8 @@ function vbmf_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0,
     params.H = H
     params.AHat = randn(M, H)
     params.BHat = randn(L, H)
-    params.SigmaAHat = zeros(H, H)
-    params.SigmaBHat = zeros(H, H)
+    params.SigmaA = zeros(H, H)
+    params.SigmaB = zeros(H, H)
     params.CA = ca*eye(H)
     params.CB = cb*eye(H)
     params.invCA = inv(params.CA)
@@ -81,9 +81,9 @@ end
 Updates mean and covariance of the A matrix.
 """
 function updateA!(Y::Array{Float64,2}, params::vbmf_parameters)
-    params.SigmaAHat = params.sigma2*inv(params.BHat'*params.BHat + 
-        params.L*params.SigmaBHat + params.sigma2*params.invCA)
-    params.AHat =  Y'*params.BHat*params.SigmaAHat/params.sigma2
+    params.SigmaA = params.sigma2*inv(params.BHat'*params.BHat + 
+        params.L*params.SigmaB + params.sigma2*params.invCA)
+    params.AHat =  Y'*params.BHat*params.SigmaA/params.sigma2
 end
 
 """
@@ -92,9 +92,9 @@ end
 Updates mean and covariance of the B matrix.
 """
 function updateB!(Y::Array{Float64,2}, params::vbmf_parameters)
-    params.SigmaBHat = params.sigma2*inv(params.AHat'*params.AHat + 
-        params.M*params.SigmaAHat + params.sigma2*params.invCB)
-    params.BHat =  Y*params.AHat*params.SigmaBHat/params.sigma2
+    params.SigmaB = params.sigma2*inv(params.AHat'*params.AHat + 
+        params.M*params.SigmaA + params.sigma2*params.invCB)
+    params.BHat =  Y*params.AHat*params.SigmaB/params.sigma2
 end
 
 """
@@ -113,7 +113,7 @@ Updates the estimate of CA.
 """
 function updateCA!(params::vbmf_parameters)
     for h in 1:params.H
-        params.CA[h,h] = norm2(params.AHat[:,h])/params.M + params.SigmaAHat[h,h]
+        params.CA[h,h] = norm2(params.AHat[:,h])/params.M + params.SigmaA[h,h]
     end
     params.invCA = inv(params.CA)
 end
@@ -125,7 +125,7 @@ Updates the estimate of CB.
 """
 function updateCB!(params::vbmf_parameters)
     for h in 1:params.H
-        params.CB[h,h] = norm2(params.BHat[:,h])/params.L + params.SigmaBHat[h,h]
+        params.CB[h,h] = norm2(params.BHat[:,h])/params.L + params.SigmaB[h,h]
     end
     params.invCB = inv(params.CB)
 end
@@ -137,15 +137,16 @@ Updates estimate of sigma^2, the measurement noise.
 """
 function updateSigma2!(Y::Array{Float64,2}, params::vbmf_parameters)
     params.sigma2 = (norm2(Y) - trace(2*Y'*params.BHat*params.AHat') + 
-        trace((params.AHat'*params.AHat + params.M*params.SigmaAHat)*
-            (params.BHat'*params.BHat + params.L*params.SigmaBHat)))/(params.L*params.M)
+        trace((params.AHat'*params.AHat + params.M*params.SigmaA)*
+            (params.BHat'*params.BHat + params.L*params.SigmaB)))/(params.L*params.M)
 end
 
 """
     vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
-Estimation of prior covariance cA and cB and of variance sigma can be turned on and off.
+Estimation of prior covariance cA and cB and of variance sigma can be turned on and off. Estimates 
+of cA and cB are empirical.
 The prior model is following:
     
     p(Y|A,B) = N(Y|BA^T, sigma^2*I)
@@ -162,7 +163,7 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
     log = false
     if logdir !=""
         log = true
-        logVar = createLog(params)
+        logVar = create_log(params)
     end
 
     # choice of convergence control variable
@@ -186,7 +187,7 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
         end
 
         if log
-            updateLog!(logVar, params)
+            update_log!(logVar, params)
         end
 
         # check convergence
@@ -204,7 +205,7 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
     # save inputs and outputs
     if log
         println("Saving outputs and inputs under ", logdir, "/")
-        saveLog(logVar, Y, params_in, priors, logdir, desc = desc)
+        save_log(logVar, Y, params_in, priors, logdir, desc = desc)
     end
 
     return params
