@@ -6,6 +6,8 @@ Compound type for vbmf computation. Contains the following fields:\n
     L::Int - number of rows of the original matrix 
     M::Int - number of columns of the original matrix
     H::Int - internal product dimension
+    H1::Int - number of columns of B that should belong to a contaminated class
+    labels::Array{Int64, 1} - which columns of Y are labeled as non-contaminated
     AHat::Array{Float64, 2} - mean value of A, size (M, H)
     BHat::Array{Float64, 2} - mean value of B, size (L, H)
     SigmaA::Array{Float64, 2} - covariance of A, size (H, H)
@@ -21,6 +23,8 @@ type vbmf_parameters
     L::Int
     M::Int
     H::Int
+    H1::Int
+    labels::Array{Int64,1}
     AHat::Array{Float64, 2}
     BHat::Array{Float64, 2}
     SigmaA::Array{Float64, 2}
@@ -36,17 +40,25 @@ type vbmf_parameters
 end
 
 """
-    vbmf_init(L::Int, M::Int, H::Int; ca::Float64, cb::Float64, sigma::Float64)
+    vbmf_init(L::Int, M::Int, H::Int; ca::Float64, cb::Float64, sigma::Float64, H1::Int = 0, 
+    labels::Array{Int64,1} = Array{Int64,1}())
 
 Returns an initialized structure of type vbmf_parameters.
 """
-function vbmf_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0, sigma2::Float64 = 1.0)
+function vbmf_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0, sigma2::Float64 = 1.0, 
+    H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
     params = vbmf_parameters()
 
     params.L = L
     params.M = M
     params.H = H
+    params.H1 = H1
+    params.labels = labels
+
     params.AHat = randn(M, H)
+    # now set zeroes to where the columns of Y labeled as non-infected are
+    # in A, these are rows
+    params.AHat[labels, end-H1+1:end] = 0.0
     params.BHat = randn(L, H)
     params.SigmaA = zeros(H, H)
     params.SigmaB = zeros(H, H)
@@ -84,6 +96,9 @@ function updateA!(Y::Array{Float64,2}, params::vbmf_parameters)
     params.SigmaA = params.sigma2*inv(params.BHat'*params.BHat + 
         params.L*params.SigmaB + params.sigma2*params.invCA)
     params.AHat =  Y'*params.BHat*params.SigmaA/params.sigma2
+    # now set zeroes to where the columns of Y labeled as non-infected are
+    # in A, these are rows
+    params.AHat[params.labels, end-params.H1+1:end] = 0.0
 end
 
 """
@@ -167,7 +182,7 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
     end
 
     # choice of convergence control variable
-    convergence_var = :AHat
+    convergence_var = :BHat
     old = getfield(params, convergence_var)
     d = eps + 1.0 # delta
     i = 1

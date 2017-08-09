@@ -6,6 +6,8 @@ Compound type for vbmf_sparse computation. Contains the following fields:\n
     L::Int - number of rows of the original matrix 
     M::Int - number of columns of the original matrix
     H::Int - internal product dimension
+    H1::Int - number of columns of B that should belong to a contaminated class
+    labels::Array{Int64, 1} - which columns of Y are labeled as non-contaminated
 
     AHat::Array{Float64, 2} - mean value of A, size (M, H)
     SigmaA::Array{Float64, 2} - covariance of A, size (H, H)
@@ -36,6 +38,8 @@ type vbmf_sparse_parameters
     L::Int
     M::Int
     H::Int
+    H1::Int
+    labels::Array{Int64,1}
 
     AHat::Array{Float64, 2}
     SigmaA::Array{Float64, 2}
@@ -67,19 +71,25 @@ end
 
 """
     vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Float64 = 1e-10,
-    beta0::Float64 = 1e-10, cb::Float64 = 1.0, sigma2::Float64 = 1.0)
+    beta0::Float64 = 1e-10, cb::Float64 = 1.0, sigma2::Float64 = 1.0, H1::Int = 0, 
+    labels::Array{Int64,1} = Array{Int64,1}())
 
 Returns an initialized structure of type vbmf_sparse_parameters.
 """
 function vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Float64 = 1e-10,
- beta0::Float64 = 1e-10, cb::Float64 = 1.0, sigma2::Float64 = 1.0)
+ beta0::Float64 = 1e-10, cb::Float64 = 1.0, sigma2::Float64 = 1.0, H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
     params = vbmf_sparse_parameters()
 
     params.L = L
     params.M = M
     params.H = H
+    params.H1 = H1
+    params.labels = labels
 
     params.AHat = randn(M, H)
+    # now set zeroes to where the columns of Y labeled as non-infected are
+    # in A, these are rows
+    params.AHat[labels, end-H1+1:end] = 0.0
     params.SigmaA = zeros(H, H)
     params.AVecHat = reshape(params.AHat, M*H)
     params.SigmaAVec = eye(M*H, M*H)
@@ -90,7 +100,6 @@ function vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Flo
     params.SigmaB = zeros(H, H)
     params.Gamma = zeros(L*M, H*M)
     fill_gamma!(params)
-    params.GammaTGamma = params.Gamma'*params.Gamma
 
     params.CA = ca*eye(M*H)
     params.invCA = 1/ca*eye(M*H)
@@ -155,13 +164,17 @@ function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov:
         params.SigmaAVec = diagm(ones(params.M*params.H)./diag(params.invSigmaAVec))
     end
     params.AVecHat = 1/params.sigma2*params.SigmaAVec*params.Gamma'*reshape(Y, params.L*params.M)
+    # now set zeroes to where the columns of Y labeled as non-infected are
+    # in A, these are rows
+    params.AHat = reshape(params.AVecHat, params.M, params.H)
+    params.AHat[params.labels, end-params.H1+1:end] = 0.0
+    params.AVecHat = reshape(params.AHat, params.M*params.H)
     params.AVecTAvec = params.AVecHat.^2 + diag(params.SigmaAVec)
 
     # this should be revisited !!!!!
     for h in 1:params.H
         params.SigmaA[h,h] = mean(diag(params.SigmaAVec)[((h-1)*params.M+1):h*params.M])
     end
-    params.AHat = reshape(params.AVecHat, params.M, params.H)
 end
 
 """
