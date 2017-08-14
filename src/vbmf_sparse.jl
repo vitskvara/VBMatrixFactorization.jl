@@ -17,13 +17,13 @@ Compound type for vbmf_sparse computation. Contains the following fields:\n
     BHat::Array{Float64, 2} - mean value of B, size (L, H)
     SigmaB::Array{Float64, 2} - covariance of B matrix, size (H, H)
 
-    CA::Array{Float64, 2} - prior covariance of vec(A), size (MH, MH)
+    CA::Array{Float64, 1} - diagonal of the prior covariance of vec(A^T), size (MH)
     alpha0::Float64 - shape of CA gamma prior
     beta0::Float64 - scale of CA gamma prior
     alpha::Float64 - shape of CA gamma posterior
     beta::Array{Float64,1} - scale of CA gamma posterior, size (MH, 1)
 
-    CB::Array{Float64, 2} - prior covariance of B, size (H, H)
+    CB::Array{Float64, 1} - diagonal of prior covariance of B, size (H)
     gamma0::Float64 - shape of CB gamma prior
     delta0::Float64 - scale of CB gamma prior
     gamma::Float64 - shape of CB posterior
@@ -47,13 +47,13 @@ type vbmf_sparse_parameters
     BHat::Array{Float64, 2}
     SigmaB::Array{Float64, 2}
 
-    CA::Array{Float64, 2}
+    CA::Array{Float64, 1}
     alpha0::Float64
     beta0::Float64
     alpha::Float64
     beta::Array{Float64,1}
 
-    CB::Array{Float64, 2}
+    CB::Array{Float64, 1}
     gamma0::Float64
     delta0::Float64
     gamma::Float64
@@ -94,13 +94,13 @@ function vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Flo
     params.BHat = randn(L, H)
     params.SigmaB = zeros(H, H)
 
-    params.CA = ca*eye(M*H)
+    params.CA = ca*ones(M*H)
     params.alpha0 = alpha0
     params.beta0 = beta0
     params.alpha = alpha0
     params.beta = beta0*ones(M*H)
 
-    params.CB = cb*eye(H)  
+    params.CB = cb*ones(H)  
     params.gamma0 = gamma0
     params.delta0 = delta0
     params.gamma = gamma0
@@ -134,7 +134,7 @@ Updates mean and covariance of vec(A^T) and also of the A matrix. If full_cov is
 then inverse of full covariance matrix is computed, otherwise just the diagonal is estimated.
 """
 function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool = false)
-    params.invSigmaATVec = 1/params.sigma2*kron(eye(params.M), (params.BHat'*params.BHat + params.L*params.SigmaB)) + params.CA
+    params.invSigmaATVec = 1/params.sigma2*kron(eye(params.M), (params.BHat'*params.BHat + params.L*params.SigmaB)) + diagm(params.CA)
     if full_cov
         params.SigmaATVec = inv(params.invSigmaATVec)
     else
@@ -157,7 +157,7 @@ function updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     
     # first, compute the inverse of the covariance
     # and add all the diagonal submatrices from covariance of A
-    params.SigmaB = params.CB + 1/params.sigma2*params.AHat'*params.AHat
+    params.SigmaB = diagm(params.CB) + 1/params.sigma2*params.AHat'*params.AHat
     for m in 1:params.M
         params.SigmaB += 1/params.sigma2*params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
     end
@@ -184,7 +184,7 @@ function updateCA!(params::vbmf_sparse_parameters)
     params.alpha = params.alpha0 + 0.5
     params.beta = params.beta0*ones(params.M*params.H) + 
     1/2*(params.ATVecHat.*params.ATVecHat + diag(params.SigmaATVec))
-    params.CA = diagm(params.alpha*ones(params.M*params.H)./params.beta)
+    params.CA = params.alpha*ones(params.M*params.H)./params.beta
 end
 
 """
@@ -196,7 +196,7 @@ function updateCB!(params::vbmf_sparse_parameters)
     params.gamma = params.gamma0 + params.L/2
     for h in 1:params.H
         params.delta[h] = params.delta0 + 1/2*(params.BHat[:,h]'*params.BHat[:,h])[1] + 1/2*params.SigmaB[h,h]
-        params.CB[h,h] = params.gamma/params.delta[h]
+        params.CB[h] = params.gamma/params.delta[h]
     end
 end
 
