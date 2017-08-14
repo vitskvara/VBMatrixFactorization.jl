@@ -170,7 +170,7 @@ The prior model is following:
 
 """
 function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps::Float64 = 1e-6, est_covs::Bool = false, 
-    est_var::Bool = false, logdir = "", desc = "")
+    est_var::Bool = false, logdir = "", desc = "", verb = false)
     params = copy(params_in)
     priors = Dict()
 
@@ -215,8 +215,10 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
     updateYHat!(params)
 
     # convergence info
-    print("Factorization finished after ", i, " iterations, eps = ", d, "\n")
-
+    if verb
+        print("Factorization finished after ", i-1, " iterations, eps = ", d, "\n")
+    end
+    
     # save inputs and outputs
     if log
         println("Saving outputs and inputs under ", logdir, "/")
