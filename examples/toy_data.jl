@@ -19,7 +19,7 @@ end
 
 L = 10
 M = 20
-H = 10
+H = 2
 Y_toy, A_toy, B_toy = toy_matrix(L, M, H, 0.05);
 
 # first, initialize a variable of the vbmf_parameters type
@@ -51,7 +51,7 @@ println("")
 println(" ----------- VB Matrix factorization with sparse A ---------------- ")
 println("")
 params_sparse_init = VBMatrixFactorization.vbmf_sparse_init(L, M, H, ca = 0.1, cb = 0.1, sigma2 = 0.1);
-#params_sparse_init.AHat = A_toy
+params_sparse_init.AHat = A_toy
 sparse_vbmf = VBMatrixFactorization.vbmf_sparse(Y_toy, params_sparse_init, 100, est_var = true, verb = true, 
     logdir = data_path, desc = "sparse_test");
 err = norm(Y_toy - sparse_vbmf.YHat)
