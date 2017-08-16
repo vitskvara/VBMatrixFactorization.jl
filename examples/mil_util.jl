@@ -1,3 +1,6 @@
+using JLD
+using PyPlot
+
 """
     getBag(data, field, id)
 
@@ -265,4 +268,190 @@ function validate_dataset(data, inputs ;verb = true)
     end
 
     return res_mat
+end
+
+"""
+    validate_datasets(solver::String, H::Int, clas_iter::Int, file_inds::UnitRange{Int64}, input_path::String, output_path::String)
+
+Wrapper for validate_dataset() that takes a whole folder of inputs, some settings and computes data for evaluation of the vbmf 
+classification.
+"""
+function validate_datasets(solver::String, H::Int, clas_iter::Int, file_inds::UnitRange{Int64}, input_path::String, output_path::String)
+    files = readdir(input_path)
+    println("The directory $input_path contains the following files:")
+    for file in files
+        println(file)
+    end
+    println("")
+
+    # inputs for the validation function
+    inputs = Dict()
+    inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9] # the vector percentages of known labels 
+    inputs["nclass_iter"] = clas_iter # number of iterations over a p_vec element
+    inputs["niter"] = 100 # iterations for vbmf solver
+    inputs["eps"] = 1e-3 # the convergence limit for vbmf
+    inputs["solver"] = solver # basic/sparse
+    inputs["H"] = H # inner dimension of the factorization
+    inputs["dataset_name"] = ""
+    verb = false
+    mkpath(output_path)
+
+    # loop through all the files, train them using vbmf, then validate the classification using a testing dataset
+    # then save the results
+    tic(); # for performance measurement
+    for file in files[file_inds]
+        dataset_name, suf = split(file, ".")
+        if suf != "jld" # if the file is not a .jld file, move on
+            continue
+        end
+
+        println("Processing file $file...")
+
+        # load the data
+        data = load(string(mil_path, "/", file));
+
+        # perform testing of the classification on the dataset
+        inputs["dataset_name"] = dataset_name
+        res_mat = validate_dataset(data, inputs, verb = verb)
+
+        # save the outputs and inputs
+        fname = string(dataset_name, "_", inputs["solver"], "_", inputs["H"], "_", inputs["nclass_iter"])
+        save("$output_path/$fname.jld", "res_mat", res_mat, "inputs", inputs)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+
+        println("Done.")
+        println()
+    end
+    toc()
+end
+
+
+"""
+    table_summary(res_mat::Array{Float64,2}; verb::Bool = true)
+
+Returns and possibly prints mean values of error rates for a result of the validate_datasets() function.
+"""
+function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
+    inputs = class_res["inputs"]
+    res_mat = class_res["res_mat"]
+
+    p_vec =inputs["p_vec"]
+    np = size(p_vec)[1]
+    ndiag = size(res_mat)[2]
+
+    mean_table = zeros(np, ndiag)
+    for n in 1:np
+        p = p_vec[n]
+        p_mat = res_mat[res_mat[:,1] .== p, :] # extract just rows with current p-val
+        p_mat = p_mat[p_mat[:,2] .!= -1.0, :] # throw away lines with computation errors
+        for i in 1:ndiag
+            mean_table[n,i] = mean(p_mat[!isnan(p_mat[:,i]),i])  # throw away nans
+        end
+        
+    end
+
+    if verb
+        dataset_name = inputs["dataset_name"]
+        H = inputs["H"]
+        nclass_iter = inputs["nclass_iter"]
+        method = inputs["solver"]
+        print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, $nclass_iter samples: \n \n")
+        print(" perc. of known labels | error rate | EER | false pos. | false neg. | neg. samples | pos. samples \n")
+        print("------------------------------------------------------------------------------------------------------\n")
+        for n in 1:np
+            @printf "        %0.2f                %0.3f    %0.3f     %0.1f       %0.1f          %0.1f         %0.1f \n" mean_table[n,1] mean_table[n,2] mean_table[n,3] mean_table[n,4] mean_table[n,5] mean_table[n,6] mean_table[n,7]
+        end
+    end
+
+    return mean_table
+end
+
+"""
+   plot_statistics(clas_res::Dict{String,Any}) 
+
+Plots statistics of a validate_datasets() function result.
+"""
+function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_path::String = "")
+    inputs = class_res["inputs"]
+    res_mat = class_res["res_mat"]
+
+    p_vec =inputs["p_vec"]
+    np = size(p_vec)[1]
+    ndiag = size(res_mat)[2]
+    stat_names = ["mean error", "equal error rate", "false positives", "false negatives", "negative samples", "positive samples"]
+
+    dataset_name = inputs["dataset_name"]
+    H = inputs["H"]
+    nclass_iter = inputs["nclass_iter"]
+    method = inputs["solver"]
+    mean_table = table_summary(class_res, verb = verb)
+
+    # plots
+    ioff() # Interactive plotting OFF, necessary for inline plotting in IJulia
+    fig = figure("vbmfa classification statistics",figsize=(10,15))
+    suptitle("$dataset_name, $method solver, H = $H, $nclass_iter samples")
+    subplots_adjust(hspace=0.3)
+
+    # mean values of error rates
+    subplot(411) # Create the 1st axis of a 3x1 array of axes
+    #ax = gca()
+    #ax[:set_yscale]("log") # Set the y axis to a logarithmic scale
+    plot(1:np, mean_table[:,2], label = stat_names[1])
+    plot(1:np, mean_table[:,3], label = stat_names[2])
+    title("Mean error values")
+    xlabel("percentage of known labels")
+    ylabel("")
+    xticks(1:np, p_vec)
+    legend()
+
+    # false negatives and positives
+    subplot(412)
+    plot(1:np, mean_table[:,4], label = stat_names[3])
+    plot(1:np, mean_table[:,5], label = stat_names[4])
+    plot(1:np, mean_table[:,6], label = stat_names[5])
+    plot(1:np, mean_table[:,7], label = stat_names[6])
+    xlabel("percentage of known labels")
+    ylabel("")
+    title("Identification statistics")
+    xticks(1:np, p_vec)
+    legend()   
+
+    # boxplots
+    subplot(413) # Create the 2nd axis of a 3x1 arrax of axes
+    data = []
+    for n in 1:np
+        p = p_vec[n]
+        curr_vec = res_mat[res_mat[:,1] .== p, 2] # extract just rows with current p-val
+        curr_vec = curr_vec[curr_vec .!= -1.0] # throw away lines with computation errors
+        curr_vec = curr_vec[!isnan(curr_vec)]
+        push!(data, curr_vec)
+    end
+    boxplot(data)
+    title("box plot of mean error rate")
+    xlabel("percentage of known labels")
+    xticks(1:np, p_vec)
+
+    subplot(414) # Create the 2nd axis of a 3x1 arrax of axes
+    data = []
+    for n in 1:np
+        p = p_vec[n]
+        curr_vec = res_mat[res_mat[:,1] .== p, 3] # extract just rows with current p-val
+        curr_vec = curr_vec[curr_vec .!= -1.0] # throw away lines with computation errors
+        curr_vec = curr_vec[!isnan(curr_vec)]
+        push!(data, curr_vec)
+    end
+    boxplot(data)
+    title("box plot of equal error rate")
+    xlabel("percentage of known labels")
+    xticks(1:np, p_vec)
+
+     fig[:canvas][:draw]() # Update the figure
+     gcf() # Needed for IJulia to plot inline
+
+     # save the figure
+     if save_path != ""
+        filename = string(save_path, "/$dataset_name", "_$method", "_$H", "_$nclass_iter.eps")
+        savefig(filename, format="eps", dpi=1000);
+        println("Saving the figure to $filename.")
+     end
 end
