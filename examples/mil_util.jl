@@ -1,5 +1,6 @@
 using JLD
 using PyPlot
+include("../src/util.jl")
 
 """
     getBag(data, field, id)
@@ -87,12 +88,18 @@ solver = basic - calls vbmf()
 solver = sparse - calls vbmf_sparse()
 
 """
-function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true)
+function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true,
+    scale_y::Bool = false)
     Y0, Y1, n0, n1, inds0, inds1 = get_matrices(data, bag_ids)
 
     if n0 == 0 || n1 ==0
         warn("One of the input matrices is empty, ending.")
         return 0, 0
+    end
+
+    if scale_y
+        Y0 = scaleY(Y0)
+        Y1 = scaleY(Y1)        
     end
 
     if verb
@@ -108,10 +115,10 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         res1 = VBMatrixFactorization.vbmf_init(L, M1, H)
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
-        init0 = VBMatrixFactorization.vbmf_sparse_init(L, M0, H)
-        res0 = VBMatrixFactorization.vbmf_sparse(Y0, init0, niter, eps = eps, est_var = true, verb = verb)
-        init1 = VBMatrixFactorization.vbmf_sparse_init(L, M1, H)
-        res1 = VBMatrixFactorization.vbmf_sparse(Y1, init1, niter, eps = eps, est_var = true, verb = verb)
+        res0 = VBMatrixFactorization.vbmf_sparse_init(L, M0, H)
+        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, est_var = true, verb = verb)
+        res1 = VBMatrixFactorization.vbmf_sparse_init(L, M1, H)
+        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, est_var = true, verb = verb)
     else
         error("Unknown type of solver. Use 'basic' or 'sparse'.")
         return
@@ -160,9 +167,14 @@ end
 Using training data res0 and res1, test the classification of Y.
 Returns one of the set {-1,0,1} = {false positive, match, false negative}.
 """
-function test_one(res0, res1, bag_id::Int, data::Dict{String,Any})
+function test_one(res0, res1, bag_id::Int, data::Dict{String,Any}; scale_y::Bool = false)
     Y = getY(data, bag_id)
     label = getLabel(data, bag_id)
+
+    if scale_y
+        Y = scaleY(Y)
+    end
+
     est_label, err0, err1 = classify(res0, res1, Y)
 
     return label - est_label
@@ -174,7 +186,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; scale_y::Bool = false)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -182,7 +194,7 @@ function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
     fp = 0 # number of false positives
     fn = 0 # number of false negatives
     for id in bag_ids
-        res = test_one(res0, res1, id, data)
+        res = test_one(res0, res1, id, data, scale_y = scale_y)
         
         if res == 1
             fn += 1
@@ -210,7 +222,8 @@ end
 
 For a dataset and a percentage of known labels, asses the classification.
 """
-function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, verb::Bool = true)
+function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
+    verb::Bool = true, scale_y::Bool = false)
     nBags = data["bagids"][end]
 
     rand_inds = sample(1:nBags, nBags, replace = false);
@@ -218,13 +231,13 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     test_inds = rand_inds[Int(floor(p_known*nBags))+1:end];
 
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb);
+    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, scale_y = scale_y);
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, scale_y = scale_y)
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -253,14 +266,18 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
     res_mat = zeros(nclass_iter*np, 7) # matrix of resulting error numbers 
     for ip in 1:np
         p = p_vec[ip]
+        println("p = $(p)")
+        
         for n in 1:nclass_iter
+            println("n = $(n)")    
             try
                 res_mat[(ip-1)*nclass_iter+n,1] = p
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb)
+                    inputs["H"], eps = inputs["eps"], verb = verb, scale_y = inputs["scale_y"])
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
+                println(y)
                 res_mat[(ip-1)*nclass_iter+n,1] = p
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
             end          
@@ -276,7 +293,8 @@ end
 Wrapper for validate_dataset() that takes a whole folder of inputs, some settings and computes data for evaluation of the vbmf 
 classification.
 """
-function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, input_path::String, output_path::String; verb::Bool = true)
+function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, input_path::String, output_path::String; 
+    verb::Bool = true)
 
     files = readdir(input_path)
     #if verb
@@ -335,8 +353,9 @@ function warmup(mil_path::String)
     inputs["solver"] = "basic" # basic/sparse for non/full ARD on A matrix in vbmf
     inputs["H"] = 1 # inner dimension of the factorization
     inputs["dataset_name"] = ""
+    inputs["scale_y"] = true
 
-    output_path = "./garbage"
+    output_path = "./warmup_garbage"
     file_inds = 1:1
 
     validate_datasets(inputs, file_inds, mil_path, output_path, verb = false)

@@ -10,13 +10,14 @@ include("mil_util.jl")
 verb = true
 inputs = Dict()
 #inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9] # the vector percentages of known labels 
-inputs["p_vec"] =  [0.01] 
+inputs["p_vec"] =  [0.01, 0.02, 0.05] 
 inputs["nclass_iter"] = 100 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
 inputs["niter"] = 100 # iterations for vbmf solver
 inputs["eps"] = 1e-3 # the convergence limit for vbmf
-inputs["solver"] = "basic" # basic/sparse for non/full ARD on A matrix in vbmf
+inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
 inputs["H"] = 5 # inner dimension of the factorization
 inputs["dataset_name"] = ""
+inputs["scale_y"] = true
 
 ########################
 # DEFINE YOUR io PATHS #
@@ -35,5 +36,4 @@ file_inds = 1:1 # which MIL files you want to use
 #main("sparse", 1, 50, 1:nfiles)
 #main("basic", 2, 50, 1:1)
 @time warmup(mil_path)
-@time validate_datasets(inputs, file_inds, mil_path, output_path, verb = verb)
 @time validate_datasets(inputs, file_inds, mil_path, output_path, verb = verb)
