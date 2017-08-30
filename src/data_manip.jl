@@ -50,7 +50,7 @@ end
 Saves the log dictionary and inputs to a .jld file specified in logdir.
 Name of the log is date_time if unspecified, or desc.
 "
-function save_log(logVar::Dict{Any, Any}, Y, params, priors, logdir::String; desc::String = "")
+function save_log(logVar::Dict{Any, Any}, Y, priors, logdir::String; desc::String = "")
     # if no description given, create it from current datetime
     if desc == ""
         desc = Dates.format(now(), "yyyymmdd_HHMMSS")
@@ -62,7 +62,7 @@ function save_log(logVar::Dict{Any, Any}, Y, params, priors, logdir::String; des
 
     # save the data
     save(string(dir, "/log.jld"), logVar)
-    save(string(dir, "/inputs.jld"), "Y", Y, "priors", priors, "params", params)
+    save(string(dir, "/inputs.jld"), "Y", Y, "priors", priors)
 end
 
 "
@@ -75,7 +75,7 @@ function load_log(path::String)
     try
         logVar = load(string(path, "/log.jld"))
         inputs = load(string(path, "/inputs.jld"))
-        return logVar, inputs["Y"], inputs["priors"], inputs["params"]
+        return logVar, inputs["Y"], inputs["priors"]
     catch
         ls = readdir(path)
         msg = "The specified folder does not contain any log files but it contains the following:\n"

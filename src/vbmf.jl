@@ -157,7 +157,7 @@ function updateSigma2!(Y::Array{Float64,2}, params::vbmf_parameters)
 end
 
 """
-    vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
+    vbmf!(Y::Array{Float64, 2}, params::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
 Estimation of prior covariance cA and cB and of variance sigma can be turned on and off. Estimates 
@@ -168,10 +168,11 @@ The prior model is following:
     p(A) = N(A|0, C_A), C_A = diag(c_a)
     p(B) = N(B|0, C_B), C_B = diag(c_b)
 
+The params argument with initialized data is modified and contains the resulting estimates after the 
+algorithm stops.
 """
-function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps::Float64 = 1e-6, est_covs::Bool = false, 
+function vbmf!(Y::Array{Float64, 2}, params::vbmf_parameters, niter::Int; eps::Float64 = 1e-6, est_covs::Bool = false, 
     est_var::Bool = false, logdir = "", desc = "", verb = false)
-    params = copy(params_in)
     priors = Dict()
 
     # create the log dictionary
@@ -222,9 +223,25 @@ function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps:
     # save inputs and outputs
     if log
         println("Saving outputs and inputs under ", logdir, "/")
-        save_log(logVar, Y, params_in, priors, logdir, desc = desc)
+        save_log(logVar, Y, priors, logdir, desc = desc)
     end
 
     return params
 end
 
+"""
+    vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
+
+Calls vbmf_sparse!() but copies the params_in argument so that it is not modified and can be reused.
+"""
+function vbmf(Y::Array{Float64, 2}, params_in::vbmf_parameters, niter::Int; eps::Float64 = 1e-6, est_covs::Bool = false, 
+    est_var::Bool = false, logdir = "", desc = "", verb = false)
+    # copy the input params
+    params = copy(params_in)
+
+    # run the algorithm
+    vbmf!(Y, params, niter, eps = eps, est_covs = est_covs, est_var = est_var, 
+        logdir = logdir, desc = desc, verb = verb)
+
+    return params
+end

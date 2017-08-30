@@ -217,7 +217,7 @@ function updateSigma2!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
 end
 
 """
-    vbmf(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int, eps::Float64 = 1e-6, 
+    vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int, eps::Float64 = 1e-6, 
     est_var = false, full_cov::Bool = false, logdir = "", desc = "")
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
@@ -231,10 +231,11 @@ The prior model is following:
     p(CA) = G(C_A| alpha0, beta0)
     p(CB) = G(C_B| gamma0, delta0)
 
+The params argument with initialized data is modified and contains the resulting estimates after the 
+algorithm stops.
 """
-function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
+function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
     est_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
-    params = copy(params_in)
     priors = Dict()
 
     # create the log dictionary
@@ -283,9 +284,26 @@ function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, ni
     # save inputs and outputs
     if log
         println("Saving outputs and inputs under ", logdir, "/")
-        save_log(logVar, Y, params_in, priors, logdir, desc = desc)
+        save_log(logVar, Y, priors, logdir, desc = desc)
     end
 
     return params
 end
 
+"""
+    vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int, eps::Float64 = 1e-6, 
+    est_var = false, full_cov::Bool = false, logdir = "", desc = "")
+
+Calls vbmf_sparse!() but copies the params_in argument so that it is not modified and can be reused.
+"""
+function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
+    est_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    # make a copy of input params
+    params = copy(params_in)
+
+    # run the algorithm
+    vbmf_sparse!(Y, params, niter, eps = eps, est_var = est_var, full_cov = full_cov, 
+        logdir = logdir, desc = desc, verb = verb)
+
+    return params
+end

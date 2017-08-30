@@ -6,7 +6,7 @@ using PyPlot
 
 Extracts a field from a MIL data variable given an id of a bag.
 """
-function getBag(data, field, id)
+function getBag(data::Dict{String,Any}, field::String, id::Int)
     s = size(data[field])
     inds = (data["bagids"] .== id)
     if length(s) == 1
@@ -21,7 +21,7 @@ end
 
 Extracts a Y matrix from a MIL data variable given the id of a bag.
 """
-function getY(data, id)
+function getY(data::Dict{String,Any}, id::Int)
     res = getBag(data, "fMat", id)
     return convert(Array{Float64, 2}, res)
 end
@@ -31,7 +31,7 @@ end
 
 Extracts label of a bag with index id.
 """
-function getLabel(data, id)
+function getLabel(data::Dict{String,Any}, id::Int)
     return getBag(data, "y", id)[1]
 end
 
@@ -40,7 +40,7 @@ end
 
 For given bag indices, extracts negative and positive bags and returns them as a matrix.
 """
-function get_matrices(data, bag_ids)
+function get_matrices(data::Dict{String,Any}, bag_ids)
     Y0 = 0
     Y1 = 0
     n0 = 0
@@ -87,7 +87,7 @@ solver = basic - calls vbmf()
 solver = sparse - calls vbmf_sparse()
 
 """
-function train(data, bag_ids, solver, H, niter; eps::Float64 = 1e-6, verb::Bool = true)
+function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true)
     Y0, Y1, n0, n1, inds0, inds1 = get_matrices(data, bag_ids)
 
     if n0 == 0 || n1 ==0
@@ -103,10 +103,10 @@ function train(data, bag_ids, solver, H, niter; eps::Float64 = 1e-6, verb::Bool 
     L, M1 = size(Y1)
 
     if solver == "basic"
-        init0 = VBMatrixFactorization.vbmf_init(L, M0, H)
-        res0 = VBMatrixFactorization.vbmf(Y0, init0, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
-        init1 = VBMatrixFactorization.vbmf_init(L, M1, H)
-        res1 = VBMatrixFactorization.vbmf(Y1, init1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
+        res0 = VBMatrixFactorization.vbmf_init(L, M0, H)
+        VBMatrixFactorization.vbmf!(Y0, res0, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
+        res1 = VBMatrixFactorization.vbmf_init(L, M1, H)
+        VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
         init0 = VBMatrixFactorization.vbmf_sparse_init(L, M0, H)
         res0 = VBMatrixFactorization.vbmf_sparse(Y0, init0, niter, eps = eps, est_var = true, verb = verb)
@@ -160,7 +160,7 @@ end
 Using training data res0 and res1, test the classification of Y.
 Returns one of the set {-1,0,1} = {false positive, match, false negative}.
 """
-function test_one(res0, res1, bag_id, data)
+function test_one(res0, res1, bag_id::Int, data::Dict{String,Any})
     Y = getY(data, bag_id)
     label = getLabel(data, bag_id)
     est_label, err0, err1 = classify(res0, res1, Y)
@@ -174,7 +174,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test(res0, res1, data, bag_ids)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -210,7 +210,7 @@ end
 
 For a dataset and a percentage of known labels, asses the classification.
 """
-function validate(p_known, data, niter, solver, H; eps = 1e-6, verb = true)
+function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, verb::Bool = true)
     nBags = data["bagids"][end]
 
     rand_inds = sample(1:nBags, nBags, replace = false);
@@ -224,13 +224,13 @@ function validate(p_known, data, niter, solver, H; eps = 1e-6, verb = true)
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test(res0, res1, data, test_inds)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
 
     return mer, eer, fp, fn, n0, n1
 end
 
 """
-    validate_dataset(data, inputs ;verb = true)
+    validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
 
 Validates classification using vbmf on a whole MIL dataset using vector of 
 percentages of known labels. Inputs contain the vector of  percentages of known
@@ -245,7 +245,7 @@ inputs["eps"] = 1e-3
 inputs["solver"] = "basic"
 inputs["H"] = 1
 """
-function validate_dataset(data, inputs ;verb = true)
+function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
     p_vec = inputs["p_vec"]
     nclass_iter = inputs["nclass_iter"]
     np = size(p_vec)[1]
@@ -271,60 +271,79 @@ function validate_dataset(data, inputs ;verb = true)
 end
 
 """
-    validate_datasets(solver::String, H::Int, clas_iter::Int, file_inds::UnitRange{Int64}, input_path::String, output_path::String)
+    validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, input_path::String, output_path::String)
 
 Wrapper for validate_dataset() that takes a whole folder of inputs, some settings and computes data for evaluation of the vbmf 
 classification.
 """
-function validate_datasets(solver::String, H::Int, clas_iter::Int, file_inds::UnitRange{Int64}, input_path::String, output_path::String)
-    files = readdir(input_path)
-    println("The directory $input_path contains the following files:")
-    for file in files
-        println(file)
-    end
-    println("")
+function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, input_path::String, output_path::String; verb::Bool = true)
 
-    # inputs for the validation function
-    inputs = Dict()
-    inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9] # the vector percentages of known labels 
-    inputs["nclass_iter"] = clas_iter # number of iterations over a p_vec element
-    inputs["niter"] = 100 # iterations for vbmf solver
-    inputs["eps"] = 1e-3 # the convergence limit for vbmf
-    inputs["solver"] = solver # basic/sparse
-    inputs["H"] = H # inner dimension of the factorization
-    inputs["dataset_name"] = ""
-    verb = false
+    files = readdir(input_path)
+    #if verb
+    #    println("The directory $input_path contains the following files:")
+    #    for file in files
+    #        println(file)
+    #    end
+    #    println("")
+    #end
+
     mkpath(output_path)
 
     # loop through all the files, train them using vbmf, then validate the classification using a testing dataset
     # then save the results
-    tic(); # for performance measurement
+
     for file in files[file_inds]
         dataset_name, suf = split(file, ".")
         if suf != "jld" # if the file is not a .jld file, move on
             continue
         end
 
-        println("Processing file $file...")
+        if verb
+            println("Processing file $file...")
+        end
 
         # load the data
         data = load(string(mil_path, "/", file));
 
         # perform testing of the classification on the dataset
         inputs["dataset_name"] = dataset_name
-        res_mat = validate_dataset(data, inputs, verb = verb)
+        res_mat = validate_dataset(data, inputs, verb = false)
 
         # save the outputs and inputs
         fname = string(dataset_name, "_", inputs["solver"], "_", inputs["H"], "_", inputs["nclass_iter"])
         save("$output_path/$fname.jld", "res_mat", res_mat, "inputs", inputs)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 
-        println("Done.")
-        println()
+        if verb
+            println("Done.")
+            println()
+        end
     end
-    toc()
 end
 
+"""
+    warmup()
+
+Serves to precompile the validate_datasets() function.
+"""
+function warmup(mil_path::String)
+    print("Precompiling the validation function... ")
+    inputs = Dict()
+    inputs["p_vec"] =  [0.01] 
+    inputs["nclass_iter"] = 1 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
+    inputs["niter"] = 1 # iterations for vbmf solver
+    inputs["eps"] = 1e-3 # the convergence limit for vbmf
+    inputs["solver"] = "basic" # basic/sparse for non/full ARD on A matrix in vbmf
+    inputs["H"] = 1 # inner dimension of the factorization
+    inputs["dataset_name"] = ""
+
+    output_path = "./garbage"
+    file_inds = 1:1
+
+    validate_datasets(inputs, file_inds, mil_path, output_path, verb = false)
+
+    rm("output_path", force=true, recursive=true)
+    print("done. \n")
+end
 
 """
     table_summary(res_mat::Array{Float64,2}; verb::Bool = true)

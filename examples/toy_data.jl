@@ -38,7 +38,7 @@ err = norm(Y_toy - res_vbmf.YHat)
 println("||Y - Yhat|| = $err")
 
 # this is how the log is loaded and used
-vbmf_log, data, priors, start_params = VBMatrixFactorization.load_log(string(data_path,"/vbmf_test"));
+vbmf_log, data, priors = VBMatrixFactorization.load_log(string(data_path,"/vbmf_test"));
 params_vbmf = VBMatrixFactorization.vbmf_parameters(); # dummy variable to store individual step data
 
 iter = 3
