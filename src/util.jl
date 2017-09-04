@@ -50,3 +50,12 @@ function scaleY(Y::Array{Float64,2})
     Y = nom./den
     return Y
 end
+
+"""
+    traceXTY(X, Y)
+
+Computes tr(X^TY) more effectively than trace(X'*Y). 
+"""
+function traceXTY(X::Array{Float64,2}, Y::Array{Float64,2})
+    return(sum(X.*Y))
+end

@@ -45,12 +45,12 @@ end
 
 Returns an initialized structure of type vbmf_parameters.
 """
-function vbmf_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0, sigma2::Float64 = 1.0, 
+function vbmf_init(Y::Array{Float64,2}, H::Int; ca::Float64 = 1.0, cb::Float64 = 1.0, sigma2::Float64 = 1.0, 
     H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
     params = vbmf_parameters()
+    L, M = size(Y)
 
-    params.L = L
-    params.M = M
+    params.L, params.M = L, M 
     params.H = H
     params.H1 = H1
     params.labels = labels

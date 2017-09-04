@@ -29,8 +29,17 @@ Compound type for vbmf_sparse computation. Contains the following fields:\n
     gamma::Float64 - shape of CB posterior
     delta::Array{Float64,1} - scale of CB posterior, size (H)
 
-    sigma::Float64 - variance of data
+    sigmaHat::Float64 - variance of data - homoscedastic case
+    eta0::Float64 - shape of sigma gamma prior
+    zeta0::Float64 - scale of sigma gamma prior
+    eta::Float64 - shape of homoscedastic sigma posterior
+    zeta::Float64 - scale of homoscedastic sigma posterior 
+    sigmaVecHat::Array{Float64,1} - variance of data (rows) - heteroscedastic case, size (L)
+    etaVec::Array{Float64,1} - shape of heteroscedastic sigma posterior, size (L)
+    zetaVec::Array{Float64,1} - scale of heteroscedastic sigma posterior, size (L)
+
     YHat::Array{Float64, 2} - estimate of Y, size (L, M)
+    trYTY::Float64 - trace(Y^T*Y), saved so that it does not have to be recomputed
 """
 type vbmf_sparse_parameters
     L::Int
@@ -59,26 +68,39 @@ type vbmf_sparse_parameters
     gamma::Float64
     delta::Array{Float64,1}
 
-    sigma2::Float64
+    sigmaHat::Float64
+    eta0::Float64
+    zeta0::Float64
+    eta::Float64
+    zeta::Float64
+    sigmaVecHat::Array{Float64,1}
+    etaVec::Array{Float64,1}
+    zetaVec::Array{Float64,1}
+
     YHat::Array{Float64, 2}
+    trYTY::Float64
     
     vbmf_sparse_parameters() = new()
 end
 
 """
-    vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Float64 = 1e-10,
-    beta0::Float64 = 1e-10, cb::Float64 = 1.0, gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
-    sigma2::Float64 = 1.0, H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
+    vbmf_sparse_init(Y::Array{Float64,2}, L::Int, M::Int, H::Int; ca::Float64 = 1.0, 
+    alpha0::Float64 = 1e-10, beta0::Float64 = 1e-10, cb::Float64 = 1.0, 
+    gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
+    sigma::Float64 = 1.0, eta0::Float64 = 1e-10, zeta0::Float64 = 1e-10,
+    H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
 
 Returns an initialized structure of type vbmf_sparse_parameters.
 """
-function vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Float64 = 1e-10,
- beta0::Float64 = 1e-10, cb::Float64 = 1.0, gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
- sigma2::Float64 = 1.0, H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
+function vbmf_sparse_init(Y::Array{Float64,2}, H::Int; ca::Float64 = 1.0, 
+    alpha0::Float64 = 1e-10, beta0::Float64 = 1e-10, cb::Float64 = 1.0, 
+    gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
+    sigma::Float64 = 1.0, eta0::Float64 = 1e-10, zeta0::Float64 = 1e-10,
+    H1::Int = 0, labels::Array{Int64,1} = Array{Int64,1}())
     params = vbmf_sparse_parameters()
+    L, M = size(Y)
 
-    params.L = L
-    params.M = M
+    params.L, params.M = L, M 
     params.H = H
     params.H1 = H1
     params.labels = labels
@@ -97,17 +119,26 @@ function vbmf_sparse_init(L::Int, M::Int, H::Int; ca::Float64 = 1.0, alpha0::Flo
     params.CA = ca*ones(M*H)
     params.alpha0 = alpha0
     params.beta0 = beta0
-    params.alpha = alpha0
+    params.alpha = params.alpha0 + 0.5
     params.beta = beta0*ones(M*H)
 
     params.CB = cb*ones(H)  
     params.gamma0 = gamma0
     params.delta0 = delta0
-    params.gamma = gamma0
+    params.gamma = gamma0 + L/2
     params.delta = delta0*ones(H)
 
-    params.sigma2 = sigma2
+    params.sigmaHat = sigma
+    params.eta0 = eta0
+    params.zeta0 = zeta0
+    params.eta = eta0 + L*M/2
+    params.zeta = zeta0
+    params.sigmaVecHat = sigma*ones(L)
+    params.etaVec = (eta0 + M/2)*ones(L)
+    params.zetaVec = zeta0*ones(L)
+
     params.YHat = params.BHat*params.AHat'
+    params.trYTY = traceXTY(Y, Y)
     
     return params
 end
@@ -128,19 +159,27 @@ function copy(params_in::vbmf_sparse_parameters)
 end
 
 """
+    init!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+
+Initiates some basic
+"""
+function init!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+end
+
+"""
     updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool)
 
 Updates mean and covariance of vec(A^T) and also of the A matrix. If full_cov is true, 
 then inverse of full covariance matrix is computed, otherwise just the diagonal is estimated.
 """
 function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool = false)
-    params.invSigmaATVec = 1/params.sigma2*kron(eye(params.M), (params.BHat'*params.BHat + params.L*params.SigmaB)) + diagm(params.CA)
+    params.invSigmaATVec = params.sigmaHat*kron(eye(params.M), (params.BHat'*params.BHat + params.L*params.SigmaB)) + diagm(params.CA)
     if full_cov
         params.SigmaATVec = inv(params.invSigmaATVec)
     else
         params.SigmaATVec = diagm(ones(params.M*params.H)./diag(params.invSigmaATVec))
     end
-    params.ATVecHat = 1/params.sigma2*params.SigmaATVec*reshape(params.BHat'*Y, params.H*params.M)
+    params.ATVecHat = params.sigmaHat*params.SigmaATVec*reshape(params.BHat'*Y, params.H*params.M)
     # now set zeroes to where the columns of Y labeled as non-infected are
     # in A, these are rows
     params.AHat = reshape(params.ATVecHat, params.H, params.M)'
@@ -157,13 +196,13 @@ function updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     
     # first, compute the inverse of the covariance
     # and add all the diagonal submatrices from covariance of A
-    params.SigmaB = diagm(params.CB) + 1/params.sigma2*params.AHat'*params.AHat
+    params.SigmaB = diagm(params.CB) + params.sigmaHat*params.AHat'*params.AHat
     for m in 1:params.M
-        params.SigmaB += 1/params.sigma2*params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
+        params.SigmaB += params.sigmaHat*params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
     end
     #invert it
     params.SigmaB = inv(params.SigmaB)
-    params.BHat = 1/params.sigma2*Y*params.AHat*params.SigmaB
+    params.BHat = params.sigmaHat*Y*params.AHat*params.SigmaB
 end
 
 """
@@ -181,7 +220,6 @@ end
 Updates the estimate of CA.
 """
 function updateCA!(params::vbmf_sparse_parameters)
-    params.alpha = params.alpha0 + 0.5
     params.beta = params.beta0*ones(params.M*params.H) + 
     1/2*(params.ATVecHat.*params.ATVecHat + diag(params.SigmaATVec))
     params.CA = params.alpha*ones(params.M*params.H)./params.beta
@@ -193,7 +231,6 @@ end
 Updates the estimate of CB.
 """
 function updateCB!(params::vbmf_sparse_parameters)
-    params.gamma = params.gamma0 + params.L/2
     for h in 1:params.H
         params.delta[h] = params.delta0 + 1/2*(params.BHat[:,h]'*params.BHat[:,h])[1] + 1/2*params.SigmaB[h,h]
         params.CB[h] = params.gamma/params.delta[h]
@@ -201,19 +238,20 @@ function updateCB!(params::vbmf_sparse_parameters)
 end
 
 """
-    updateSigma2!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+    updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
 
-Updates estimate of sigma^2, the measurement noise.
+Updates estimate of the measurement variance.
 """
-function updateSigma2!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+function updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     SigmaA = zeros(params.H, params.H)
     for m in 1:params.M
         SigmaA += params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
     end
 
-    params.sigma2 = (norm2(Y) - trace(2*Y'*params.BHat*params.AHat') + 
-        trace((params.AHat'*params.AHat + SigmaA)*
-            (params.BHat'*params.BHat + params.L*params.SigmaB)))/(params.L*params.M)
+    params.zeta = params.zeta0 + 1/2*params.trYTY - traceXTY(params.BHat, Y*params.AHat) + 
+        1/2*traceXTY(params.AHat'*params.AHat + SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB)
+
+    params.sigmaHat = params.eta/params.zeta
 end
 
 """
@@ -221,7 +259,7 @@ end
     est_var = false, full_cov::Bool = false, logdir = "", desc = "")
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
-Estimation of variance sigma2 can be turned on and off. ARD property is imposed upon columns of B and also
+Estimation of variance 1/sigma can be turned on and off. ARD property is imposed upon columns of B and also
 upon vec(A) through gamma prior CB and CA and estimation of covariance. 
 The prior model is following:
     
@@ -260,7 +298,7 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
         updateCB!(params)
 
         if est_var
-            updateSigma2!(Y, params)
+            updateSigma!(Y, params)
         end
 
         if log

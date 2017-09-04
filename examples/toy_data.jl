@@ -30,7 +30,7 @@ Y_toy, A_toy, B_toy = toy_matrix(L, M, H, 0.05);
 
 println(" ----------- Basic VB Matrix factorization ---------------- ")
 println("")
-params_init = VBMatrixFactorization.vbmf_init(L, M, H, ca = 0.1, cb = 0.1, sigma2 = 0.1);
+params_init = VBMatrixFactorization.vbmf_init(Y_toy, H, ca = 0.1, cb = 0.1, sigma2 = 0.1);
 data_path = "./data"
 res_vbmf = VBMatrixFactorization.vbmf(Y_toy, params_init, 100, est_covs = true, est_var = true, verb = true, 
     logdir = data_path, desc = "vbmf_test");
@@ -50,7 +50,7 @@ println("")
 # vbmf_sparse usage
 println(" ----------- VB Matrix factorization with sparse A ---------------- ")
 println("")
-params_sparse_init = VBMatrixFactorization.vbmf_sparse_init(L, M, H, ca = 0.1, cb = 0.1, sigma2 = 0.1);
+params_sparse_init = VBMatrixFactorization.vbmf_sparse_init(Y_toy, H, ca = 0.1, cb = 0.1, sigma = 0.1);
 params_sparse_init.AHat = A_toy
 sparse_vbmf = VBMatrixFactorization.vbmf_sparse(Y_toy, params_sparse_init, 100, est_var = true, verb = true, 
     logdir = data_path, desc = "sparse_test");

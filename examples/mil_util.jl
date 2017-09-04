@@ -110,14 +110,14 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
     L, M1 = size(Y1)
 
     if solver == "basic"
-        res0 = VBMatrixFactorization.vbmf_init(L, M0, H)
+        res0 = VBMatrixFactorization.vbmf_init(Y0, H)
         VBMatrixFactorization.vbmf!(Y0, res0, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
-        res1 = VBMatrixFactorization.vbmf_init(L, M1, H)
+        res1 = VBMatrixFactorization.vbmf_init(Y1, H)
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
-        res0 = VBMatrixFactorization.vbmf_sparse_init(L, M0, H)
+        res0 = VBMatrixFactorization.vbmf_sparse_init(Y0, H)
         VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, est_var = true, verb = verb)
-        res1 = VBMatrixFactorization.vbmf_sparse_init(L, M1, H)
+        res1 = VBMatrixFactorization.vbmf_sparse_init(Y1, H)
         VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, est_var = true, verb = verb)
     else
         error("Unknown type of solver. Use 'basic' or 'sparse'.")
