@@ -3,6 +3,7 @@
 module VBMatrixFactorization
 
 import Base.copy
+using Base
 using JLD 
 
 export load_log, extract_params

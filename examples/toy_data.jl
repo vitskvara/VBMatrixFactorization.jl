@@ -52,8 +52,8 @@ println(" ----------- VB Matrix factorization with sparse A ---------------- ")
 println("")
 params_sparse_init = VBMatrixFactorization.vbmf_sparse_init(Y_toy, H, ca = 0.1, cb = 0.1, sigma = 0.1);
 params_sparse_init.AHat = A_toy
-sparse_vbmf = VBMatrixFactorization.vbmf_sparse(Y_toy, params_sparse_init, 100, est_var = true, verb = true, 
-    logdir = data_path, desc = "sparse_test");
+sparse_vbmf = VBMatrixFactorization.vbmf_sparse(Y_toy, params_sparse_init, 100, diag_var = false, verb = true, 
+    logdir = data_path, desc = "sparse_test", full_cov = true);
 err = norm(Y_toy - sparse_vbmf.YHat)
 println("||Y - Yhat|| = $err")
 println("")

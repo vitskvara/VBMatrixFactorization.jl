@@ -12,8 +12,10 @@ Compound type for vbmf_sparse computation. Contains the following fields:\n
     AHat::Array{Float64, 2} - mean value of A, size (M, H)
     ATVecHat::Array{Float64, 1} - mean value of vec(A^T), size (MH,1)
     SigmaATVec::Array{Float64, 2} - covariance of vec(A^T), size (MH, MH)
+    diagSigmaATVec::Array{Float64,1} - diagonal of covariance of vec(A^T), size (MH)
     invSigmaATVec::Array{Float64, 2} - inverse of covariance of vec(A^T), size (MH, MH)
-    
+    SigmaA::Array{Float64,2} - covariance of A matrix, size (H, H)
+
     BHat::Array{Float64, 2} - mean value of B, size (L, H)
     SigmaB::Array{Float64, 2} - covariance of B matrix, size (H, H)
 
@@ -51,7 +53,9 @@ type vbmf_sparse_parameters
     AHat::Array{Float64, 2}
     ATVecHat::Array{Float64, 1}
     SigmaATVec::Array{Float64, 2}
+    diagSigmaATVec::Array{Float64,1}
     invSigmaATVec::Array{Float64, 2}
+    SigmaA::Array{Float64,2}
     
     BHat::Array{Float64, 2}
     SigmaB::Array{Float64, 2}
@@ -111,7 +115,9 @@ function vbmf_sparse_init(Y::Array{Float64,2}, H::Int; ca::Float64 = 1.0,
     params.AHat[labels, end-H1+1:end] = 0.0
     params.ATVecHat = reshape(params.AHat', M*H)
     params.SigmaATVec = eye(M*H, M*H)
+    params.diagSigmaATVec = ones(M*H)
     params.invSigmaATVec = eye(M*H, M*H)
+    params.SigmaA = zeros(H, H)
 
     params.BHat = randn(L, H)
     params.SigmaB = zeros(H, H)
@@ -159,27 +165,77 @@ function copy(params_in::vbmf_sparse_parameters)
 end
 
 """
-    init!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
-
-Initiates some basic
-"""
-function init!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
-end
-
-"""
-    updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool)
+    updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool, diag_var::Bool = false)
 
 Updates mean and covariance of vec(A^T) and also of the A matrix. If full_cov is true, 
 then inverse of full covariance matrix is computed, otherwise just the diagonal is estimated.
 """
-function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool = false)
-    params.invSigmaATVec = params.sigmaHat*kron(eye(params.M), (params.BHat'*params.BHat + params.L*params.SigmaB)) + diagm(params.CA)
+function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov::Bool = false, diag_var::Bool = false)
+    # either just the diagonal or the full covariance
     if full_cov
+        # compute the inverse of covariance
+        if diag_var
+            params.invSigmaATVec = kron(eye(params.M), 
+                (params.BHat'*diagm(params.sigmaVecHat)*params.BHat + params.L*mean(params.sigmaVecHat)*params.SigmaB)) + diagm(params.CA)
+        else
+            params.invSigmaATVec = params.sigmaHat*kron(eye(params.M), 
+                (params.BHat'*params.BHat + params.L*params.SigmaB)) + diagm(params.CA)
+        end
+
         params.SigmaATVec = inv(params.invSigmaATVec)
-    else
-        params.SigmaATVec = diagm(ones(params.M*params.H)./diag(params.invSigmaATVec))
+        params.diagSigmaATVec = diag(params.SigmaATVec)
+
+        # now the mean
+        if diag_var
+            params.ATVecHat = params.SigmaATVec*reshape(params.BHat'*diagm(params.sigmaVecHat)*Y, params.H*params.M)
+        else
+            params.ATVecHat = params.sigmaHat*params.SigmaATVec*reshape(params.BHat'*Y, params.H*params.M)
+        end
+
+        # now compute the covariance of AHat
+        params.SigmaA = zeros(params.H, params.H)
+        for m in 1:params.M
+            params.SigmaA += view(params.SigmaATVec, (m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H)
+        end
+
+    else # this updates just the diagonal of the covariance of A
+        # compute the inverse of covariance
+        # only use for large problems, for small problems the full covariance is more precise
+        if diag_var
+            for h in 1:params.H
+                # instead of the full matrix multiplication as above, we compute just 
+                # the diagonal
+                params.diagSigmaATVec[h] = norm2(params.BHat[:,h].*params.sigmaVecHat) + params.L*mean(params.sigmaVecHat)*params.SigmaB[h,h]
+            end
+        else         # this is computed in case the variance of data is homoscedastic
+            for h in 1:params.H
+                # instead of the full matrix multiplication as above, we compute just 
+                # the diagonal
+                params.diagSigmaATVec[h] = params.sigmaHat*norm2(params.BHat[:,h]) + params.L*params.SigmaB[h,h]
+            end
+        end
+        # we filled just the first H elements, so we just copy it to fill the rest
+        params.diagSigmaATVec[params.H+1:end] = repeat(params.diagSigmaATVec[1:params.H], inner = params.M-1)
+        # also add the CA vector
+        params.diagSigmaATVec += params.CA
+
+        # finally, invert it
+        params.diagSigmaATVec = 1./params.diagSigmaATVec
+
+        # now the mean
+        if diag_var
+            params.ATVecHat = params.diagSigmaATVec.*reshape(params.BHat'*diagm(params.sigmaVecHat)*Y, params.H*params.M)
+        else
+            params.ATVecHat = params.sigmaHat*params.diagSigmaATVec.*reshape(params.BHat'*Y, params.H*params.M)
+        end
+
+        # now compute the covariance of AHat
+        params.SigmaA = zeros(params.H, params.H)
+        for m in 1:params.M
+            params.SigmaA += diagm(view(params.diagSigmaATVec, (m-1)*params.H+1:m*params.H))
+        end
     end
-    params.ATVecHat = params.sigmaHat*params.SigmaATVec*reshape(params.BHat'*Y, params.H*params.M)
+
     # now set zeroes to where the columns of Y labeled as non-infected are
     # in A, these are rows
     params.AHat = reshape(params.ATVecHat, params.H, params.M)'
@@ -188,21 +244,24 @@ function updateA!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; full_cov:
 end
 
 """
-    updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+    updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters, diag_var::Bool = false)
 
 Updates mean and covariance of the B matrix.
 """
-function updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
-    
+function updateB!(Y::Array{Float64,2}, params::vbmf_sparse_parameters;  diag_var::Bool = false)
     # first, compute the inverse of the covariance
-    # and add all the diagonal submatrices from covariance of A
-    params.SigmaB = diagm(params.CB) + params.sigmaHat*params.AHat'*params.AHat
-    for m in 1:params.M
-        params.SigmaB += params.sigmaHat*params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
+    if diag_var
+        params.SigmaB = diagm(params.CB) + mean(params.sigmaVecHat)*(params.AHat'*params.AHat + params.SigmaA)
+        #invert it
+        params.SigmaB = inv(params.SigmaB)
+        # now compute the mean
+        params.BHat = diagm(params.sigmaVecHat)*Y*params.AHat*params.SigmaB
+    else
+        params.SigmaB = diagm(params.CB) + params.sigmaHat*(params.AHat'*params.AHat + params.SigmaA)
+        #invert it
+        params.SigmaB = inv(params.SigmaB)
+        params.BHat = params.sigmaHat*Y*params.AHat*params.SigmaB
     end
-    #invert it
-    params.SigmaB = inv(params.SigmaB)
-    params.BHat = params.sigmaHat*Y*params.AHat*params.SigmaB
 end
 
 """
@@ -221,7 +280,7 @@ Updates the estimate of CA.
 """
 function updateCA!(params::vbmf_sparse_parameters)
     params.beta = params.beta0*ones(params.M*params.H) + 
-    1/2*(params.ATVecHat.*params.ATVecHat + diag(params.SigmaATVec))
+    1/2*(params.ATVecHat.*params.ATVecHat + params.diagSigmaATVec)
     params.CA = params.alpha*ones(params.M*params.H)./params.beta
 end
 
@@ -238,20 +297,26 @@ function updateCB!(params::vbmf_sparse_parameters)
 end
 
 """
-    updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+    updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters, diag_var::Bool = false)
 
 Updates estimate of the measurement variance.
 """
-function updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
-    SigmaA = zeros(params.H, params.H)
-    for m in 1:params.M
-        SigmaA += params.SigmaATVec[(m-1)*params.H+1:m*params.H, (m-1)*params.H+1:m*params.H] 
+function updateSigma!(Y::Array{Float64,2}, params::vbmf_sparse_parameters; diag_var::Bool = false)
+    if diag_var
+        for l in 1:params.L
+            params.zetaVec[l] = params.zeta0 + 1/2*norm2(Y[l,:]) - sum(Y[l,:].*(params.AHat*params.BHat[l,:])) +
+                1/2*traceXTY(params.AHat'*params.AHat + params.SigmaA, 
+                    params.BHat[l,:]*params.BHat[l,:]' + params.SigmaB)
+            
+            params.sigmaVecHat[l] = params.etaVec[l]/params.zetaVec[l]
+        end
+    else
+        params.zeta = params.zeta0 + 1/2*params.trYTY - traceXTY(params.BHat, Y*params.AHat) + 
+            1/2*traceXTY(params.AHat'*params.AHat + params.SigmaA, 
+                params.BHat'*params.BHat + params.L*params.SigmaB)
+
+        params.sigmaHat = params.eta/params.zeta
     end
-
-    params.zeta = params.zeta0 + 1/2*params.trYTY - traceXTY(params.BHat, Y*params.AHat) + 
-        1/2*traceXTY(params.AHat'*params.AHat + SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB)
-
-    params.sigmaHat = params.eta/params.zeta
 end
 
 """
@@ -259,11 +324,12 @@ end
     est_var = false, full_cov::Bool = false, logdir = "", desc = "")
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
-Estimation of variance 1/sigma can be turned on and off. ARD property is imposed upon columns of B and also
+Estimate of variance sigma can be either a scalar or a vector - for row variance estimation. 
+ARD property is imposed upon columns of B and also
 upon vec(A) through gamma prior CB and CA and estimation of covariance. 
 The prior model is following:
     
-    p(Y|A,B) = N(Y|BA^T, sigma^2*I)
+    p(Y|A,B) = N(Y|BA^T, 1/sigma*I) or p(Y|A,B) = N(Y|BA^T, inv(diag(sigma))) 
     p(vec(A^T)) = N(vec(A^T)|0, invCA), CA = diag(c_a)
     p(B_h) = MN(B|0, I, invCB), CB = diag(c1, ..., cH)
     p(CA) = G(C_A| alpha0, beta0)
@@ -273,7 +339,7 @@ The params argument with initialized data is modified and contains the resulting
 algorithm stops.
 """
 function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
-    est_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
     priors = Dict()
 
     # create the log dictionary
@@ -291,15 +357,13 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
 
     # run the loop for a given number of iterations
     while ((i <= niter) && (d > eps))
-        updateA!(Y, params, full_cov = full_cov)
-        updateB!(Y, params)
+        updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
+        updateB!(Y, params, diag_var = diag_var)
         
         updateCA!(params)
         updateCB!(params)
 
-        if est_var
-            updateSigma!(Y, params)
-        end
+        updateSigma!(Y, params, diag_var = diag_var)
 
         if log
             update_log!(logVar, params)
@@ -335,12 +399,12 @@ end
 Calls vbmf_sparse!() but copies the params_in argument so that it is not modified and can be reused.
 """
 function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
-    est_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
     # make a copy of input params
     params = copy(params_in)
 
     # run the algorithm
-    vbmf_sparse!(Y, params, niter, eps = eps, est_var = est_var, full_cov = full_cov, 
+    vbmf_sparse!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
         logdir = logdir, desc = desc, verb = verb)
 
     return params
