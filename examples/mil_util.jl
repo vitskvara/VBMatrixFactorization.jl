@@ -1,6 +1,7 @@
 using JLD
 using PyPlot
 include("../src/util.jl")
+using StatsBase
 
 """
     getBag(data, field, id)
@@ -88,18 +89,12 @@ solver = basic - calls vbmf()
 solver = sparse - calls vbmf_sparse()
 
 """
-function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true,
-    scale_y::Bool = false)
+function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true)
     Y0, Y1, n0, n1, inds0, inds1 = get_matrices(data, bag_ids)
 
     if n0 == 0 || n1 ==0
         warn("One of the input matrices is empty, ending.")
         return 0, 0
-    end
-
-    if scale_y
-        Y0 = scaleY(Y0)
-        Y1 = scaleY(Y1)        
     end
 
     if verb
@@ -115,10 +110,16 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         res1 = VBMatrixFactorization.vbmf_init(Y1, H)
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
+        # this is to decide whether to compute full covariance of A or just the diagonal
+        if (H*M0 > 200) || (H*M1 > 200)
+            full_cov = false
+        else
+            full_cov = true
+        end
         res0 = VBMatrixFactorization.vbmf_sparse_init(Y0, H)
-        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = false, verb = verb)
+        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = false, verb = verb, full_cov = full_cov)
         res1 = VBMatrixFactorization.vbmf_sparse_init(Y1, H)
-        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = false, verb = verb)
+        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = false, verb = verb, full_cov = full_cov)
     else
         error("Unknown type of solver. Use 'basic' or 'sparse'.")
         return
@@ -167,13 +168,10 @@ end
 Using training data res0 and res1, test the classification of Y.
 Returns one of the set {-1,0,1} = {false positive, match, false negative}.
 """
-function test_one(res0, res1, bag_id::Int, data::Dict{String,Any}; scale_y::Bool = false)
+function test_one(res0, res1, bag_id::Int, data::Dict{String,Any})
     Y = getY(data, bag_id)
-    label = getLabel(data, bag_id)
 
-    if scale_y
-        Y = scaleY(Y)
-    end
+    label = getLabel(data, bag_id)
 
     est_label, err0, err1 = classify(res0, res1, Y)
 
@@ -186,7 +184,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; scale_y::Bool = false)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -194,7 +192,7 @@ function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; scale_
     fp = 0 # number of false positives
     fn = 0 # number of false negatives
     for id in bag_ids
-        res = test_one(res0, res1, id, data, scale_y = scale_y)
+        res = test_one(res0, res1, id, data)
         
         if res == 1
             fn += 1
@@ -223,7 +221,7 @@ end
 For a dataset and a percentage of known labels, asses the classification.
 """
 function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
-    verb::Bool = true, scale_y::Bool = false)
+    verb::Bool = true)
     nBags = data["bagids"][end]
 
     rand_inds = sample(1:nBags, nBags, replace = false);
@@ -231,13 +229,41 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     test_inds = rand_inds[Int(floor(p_known*nBags))+1:end];
 
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, scale_y = scale_y);
+    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb);
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, scale_y = scale_y)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
+
+    return mer, eer, fp, fn, n0, n1
+end
+
+"""
+    validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
+
+For a dataset and a cv_index array index "which", asses the classification.
+"""
+function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
+    verb::Bool = true)
+    nBags = data["bagids"][end]
+    
+    train_inds = data["cvindexes"][which];
+    # select test indices
+    test_inds = 1:nBags
+    for i in 1:size(train_inds)[1]
+        test_inds = test_inds[test_inds .!= train_inds[i]]
+    end
+
+    # training
+    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb);
+    if res0 == 0
+        return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
+    end
+
+    # validation
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -252,39 +278,70 @@ Example of input:
 
 inputs = Dict()
 inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9]
-inputs["nclass_iter"] = 1
-inputs["niter"] = 200
-inputs["eps"] = 1e-3
-inputs["solver"] = "basic"
-inputs["H"] = 1
+inputs["nclass_iter"] = 1 # how many times is iterated over one p
+inputs["niter"] = 200 # vbmf algorithm iterations
+inputs["eps"] = 1e-3 # convergence criterion for vbmf
+inputs["solver"] = "basic" # basic/sparse vbmf
+inputs["H"] = 1 # inner dimension of factorization
+inputs["scale_y"] = true # should Y be scaled to standard distribution?
+inputs["use_cvs"] = true # should cv_indexes be used instead of p_vec?
 """
 function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
     p_vec = inputs["p_vec"]
     nclass_iter = inputs["nclass_iter"]
     np = size(p_vec)[1]
 
-    res_mat = zeros(nclass_iter*np, 7) # matrix of resulting error numbers 
+    res_mat = Array{Any,2}(nclass_iter*np, 7) # matrix of resulting error numbers 
+
+    # always compute the cv indexes partitioning first
+    if inputs["use_cvs"]
+        println("using cv_indexes")
+        a,b = size(data["cvindexes"])
+        ncvs = a*b
+        cv_res_mat = Array{Any,2}(ncvs, 7) # matrix of resulting error numbers for cv_indexes
+
+        for n in 1:ncvs
+            println("n = $(n)")
+            cv_res_mat[n,1] = "cvs"
+            try
+                mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, n, inputs["niter"], inputs["solver"], 
+                    inputs["H"], eps = inputs["eps"], verb = verb)
+                cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
+            catch y 
+                warn("Something went wrong during vbmf, no output produced.")
+                println(y)
+                cv_res_mat[n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
+            end         
+        end
+    end
+
+    # then the partitioning given by a percentage of known bags p
     for ip in 1:np
         p = p_vec[ip]
         println("p = $(p)")
         
         for n in 1:nclass_iter
             println("n = $(n)")    
+            res_mat[(ip-1)*nclass_iter+n,1] = p
             try
-                res_mat[(ip-1)*nclass_iter+n,1] = p
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb, scale_y = inputs["scale_y"])
+                    inputs["H"], eps = inputs["eps"], verb = verb)
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
                 println(y)
-                res_mat[(ip-1)*nclass_iter+n,1] = p
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
             end          
         end
     end
 
-    return res_mat
+    if inputs["use_cvs"]
+        res = cat(1, cv_res_mat, res_mat)
+    else
+        res = res_mat
+    end
+
+    return res
 end
 
 """
@@ -322,6 +379,25 @@ function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, 
 
         # load the data
         data = load(string(mil_path, "/", file));
+        
+        # now decide whether to ignore some rows
+        Y = convert(Array{Float64, 2}, data["fMat"])
+        sY = scaleY(Y)
+        rowsums = sum(abs(sY), 2)
+        L, M = size(Y)
+        used_rows = 1:L
+        used_rows = used_rows[rowsums .>= 1e-5]
+
+        if verb
+            println("Original problem size: $L rows, $(L-size(used_rows)[1]) rows not relevant and are not used.")
+        end
+
+        # now replace the original Y matrix with a new one
+        if inputs["scale_y"]
+            data["fMat"] = copy(sY[used_rows,:])
+        else
+            data["fMat"] = copy(Y[used_rows,:])
+        end
 
         # perform testing of the classification on the dataset
         inputs["dataset_name"] = dataset_name
@@ -354,6 +430,7 @@ function warmup(mil_path::String)
     inputs["H"] = 1 # inner dimension of the factorization
     inputs["dataset_name"] = ""
     inputs["scale_y"] = true
+    inputs["use_cvs"] = false
 
     output_path = "./warmup_garbage"
     file_inds = 1:1
@@ -376,16 +453,29 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
     p_vec =inputs["p_vec"]
     np = size(p_vec)[1]
     ndiag = size(res_mat)[2]
+    ncvs = 0
 
-    mean_table = zeros(np, ndiag)
+    mean_table = Array{Any,2}(np, ndiag) # matrix of resulting error numbers 
+
+    # first the cv indexes statistics
+    if inputs["use_cvs"]
+        cvs_mean_table = Array{Any,2}(1, ndiag) # matrix of resulting error numbers 
+        cv_res_mat = res_mat[res_mat[:,1] .== "cvs", :] # cv result matrix
+        cvs_mean_table[1,1] = "cvs"
+
+        cv_res_mat = cv_res_mat[cv_res_mat[:,2] .!= -1.0, :] # throw away lines with computation errors
+        for i in 2:ndiag
+            cvs_mean_table[1,i] = mean(cv_res_mat[!isnan(convert(Array{Float64,1},cv_res_mat[:,i])),i])  # throw away nans
+        end  
+    end
+
     for n in 1:np
         p = p_vec[n]
         p_mat = res_mat[res_mat[:,1] .== p, :] # extract just rows with current p-val
         p_mat = p_mat[p_mat[:,2] .!= -1.0, :] # throw away lines with computation errors
         for i in 1:ndiag
-            mean_table[n,i] = mean(p_mat[!isnan(p_mat[:,i]),i])  # throw away nans
-        end
-        
+            mean_table[n,i] = mean(p_mat[!isnan(convert(Array{Float64,1},p_mat[:,i])),i])  # throw away nans
+        end        
     end
 
     if verb
@@ -396,12 +486,21 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
         print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, $nclass_iter samples: \n \n")
         print(" perc. of known labels | error rate | EER | false pos. | false neg. | neg. samples | pos. samples \n")
         print("------------------------------------------------------------------------------------------------------\n")
+        if inputs["use_cvs"]
+            @printf "        cvs                 %0.3f    %0.3f     %0.1f       %0.1f          %0.1f         %0.1f \n" cvs_mean_table[1,2] cvs_mean_table[1,3] cvs_mean_table[1,4] cvs_mean_table[1,5] cvs_mean_table[1,6] cvs_mean_table[1,7]
+        end
         for n in 1:np
             @printf "        %0.2f                %0.3f    %0.3f     %0.1f       %0.1f          %0.1f         %0.1f \n" mean_table[n,1] mean_table[n,2] mean_table[n,3] mean_table[n,4] mean_table[n,5] mean_table[n,6] mean_table[n,7]
         end
     end
 
-    return mean_table
+    if inputs["use_cvs"]
+        res = cat(1, cvs_mean_table, mean_table)
+    else
+        res = mean_table
+    end
+
+    return res
 end
 
 """
@@ -423,6 +522,18 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     nclass_iter = inputs["nclass_iter"]
     method = inputs["solver"]
     mean_table = table_summary(class_res, verb = verb)
+
+    # because of cv indexes results are in the same file
+    if inputs["use_cvs"]
+        cv_mean_table = mean_table[1, :]        
+        mean_table = mean_table[2:end, :]
+          
+        if size(mean_table)[1] == 0
+            # nothing to draw
+            return
+        end
+    end
+    mean_table = convert(Array{Float64,2}, mean_table)
 
     # plots
     ioff() # Interactive plotting OFF, necessary for inline plotting in IJulia
@@ -455,13 +566,13 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     legend()   
 
     # boxplots
-    subplot(413) # Create the 2nd axis of a 3x1 arrax of axes
+    subplot(413) # Create the 2nd axis of a 3x1 array of axes
     data = []
     for n in 1:np
         p = p_vec[n]
         curr_vec = res_mat[res_mat[:,1] .== p, 2] # extract just rows with current p-val
         curr_vec = curr_vec[curr_vec .!= -1.0] # throw away lines with computation errors
-        curr_vec = curr_vec[!isnan(curr_vec)]
+        curr_vec = curr_vec[!isnan(convert(Array{Float64,1},curr_vec))]
         push!(data, curr_vec)
     end
     boxplot(data)
@@ -475,7 +586,7 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
         p = p_vec[n]
         curr_vec = res_mat[res_mat[:,1] .== p, 3] # extract just rows with current p-val
         curr_vec = curr_vec[curr_vec .!= -1.0] # throw away lines with computation errors
-        curr_vec = curr_vec[!isnan(curr_vec)]
+        curr_vec = curr_vec[!isnan(convert(Array{Float64,1},curr_vec))]
         push!(data, curr_vec)
     end
     boxplot(data)
