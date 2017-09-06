@@ -464,25 +464,43 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
 
     mean_table = Array{Any,2}(np, ndiag) # matrix of resulting error numbers 
 
+    # to be able to work with old results
+    use_cvs = get(inputs, "use_cvs", false)
+
     # first the cv indexes statistics
-    if inputs["use_cvs"]
+    if use_cvs
         cvs_mean_table = Array{Any,2}(1, ndiag) # matrix of resulting error numbers 
         cv_res_mat = res_mat[res_mat[:,1] .== "cvs", :] # cv result matrix
         cvs_mean_table[1,1] = "cvs"
 
         cv_res_mat = cv_res_mat[cv_res_mat[:,2] .!= -1.0, :] # throw away lines with computation errors
-        for i in 2:ndiag
-            cvs_mean_table[1,i] = mean(cv_res_mat[!isnan(convert(Array{Float64,1},cv_res_mat[:,i])),i])  # throw away nans
-        end  
+        if size(cv_res_mat)[1] == 0
+            cvs_mean_table[1,2:end] = repmat([-1.0], 1, ndiag-1)
+        else
+            for i in 2:ndiag
+                cvs_mean_table[1,i] = mean(cv_res_mat[!isnan(convert(Array{Float64,1},cv_res_mat[:,i])),i])  # throw away nans
+            end  
+        end
     end
 
     for n in 1:np
         p = p_vec[n]
         p_mat = res_mat[res_mat[:,1] .== p, :] # extract just rows with current p-val
         p_mat = p_mat[p_mat[:,2] .!= -1.0, :] # throw away lines with computation errors
+        if size(p_mat)[1] == 0
+            p_mat = repmat([-1.0], 1, ndiag)
+            p_mat[1] = p
+        end
         for i in 1:ndiag
             mean_table[n,i] = mean(p_mat[!isnan(convert(Array{Float64,1},p_mat[:,i])),i])  # throw away nans
         end        
+    end
+
+    heteroscedastic = get(inputs, "diag_var", false)
+    if heteroscedastic
+        noise_model = "heteroscedastic"
+    else
+        noise_model = "homoscedastic"
     end
 
     if verb
@@ -490,10 +508,10 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
         H = inputs["H"]
         nclass_iter = inputs["nclass_iter"]
         method = inputs["solver"]
-        print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, $nclass_iter samples: \n \n")
+        print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, $nclass_iter samples, $noise_model noise: \n \n")
         print(" perc. of known labels | error rate | EER | false pos. | false neg. | neg. samples | pos. samples \n")
         print("------------------------------------------------------------------------------------------------------\n")
-        if inputs["use_cvs"]
+        if use_cvs
             @printf "        cvs                 %0.3f    %0.3f     %0.1f       %0.1f          %0.1f         %0.1f \n" cvs_mean_table[1,2] cvs_mean_table[1,3] cvs_mean_table[1,4] cvs_mean_table[1,5] cvs_mean_table[1,6] cvs_mean_table[1,7]
         end
         for n in 1:np
@@ -501,7 +519,7 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
         end
     end
 
-    if inputs["use_cvs"]
+    if use_cvs
         res = cat(1, cvs_mean_table, mean_table)
     else
         res = mean_table
@@ -530,8 +548,15 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     method = inputs["solver"]
     mean_table = table_summary(class_res, verb = verb)
 
+    # to be able to work with old results
+    if isdefined(inputs["use_cvs"])
+        use_cvs = true
+    else
+        use_cvs = false
+    end
+
     # because of cv indexes results are in the same file
-    if inputs["use_cvs"]
+    if use_cvs
         cv_mean_table = mean_table[1, :]        
         mean_table = mean_table[2:end, :]
           
