@@ -89,7 +89,8 @@ solver = basic - calls vbmf()
 solver = sparse - calls vbmf_sparse()
 
 """
-function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, verb::Bool = true)
+function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::Int; eps::Float64 = 1e-6, 
+    verb::Bool = true, diag_var::Bool = false)
     Y0, Y1, n0, n1, inds0, inds1 = get_matrices(data, bag_ids)
 
     if n0 == 0 || n1 ==0
@@ -117,9 +118,9 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
             full_cov = true
         end
         res0 = VBMatrixFactorization.vbmf_sparse_init(Y0, H)
-        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = false, verb = verb, full_cov = full_cov)
+        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
         res1 = VBMatrixFactorization.vbmf_sparse_init(Y1, H)
-        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = false, verb = verb, full_cov = full_cov)
+        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
     else
         error("Unknown type of solver. Use 'basic' or 'sparse'.")
         return
@@ -221,7 +222,7 @@ end
 For a dataset and a percentage of known labels, asses the classification.
 """
 function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
-    verb::Bool = true)
+    verb::Bool = true, diag_var::Bool = false)
     nBags = data["bagids"][end]
 
     rand_inds = sample(1:nBags, nBags, replace = false);
@@ -229,7 +230,7 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     test_inds = rand_inds[Int(floor(p_known*nBags))+1:end];
 
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb);
+    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
@@ -246,7 +247,7 @@ end
 For a dataset and a cv_index array index "which", asses the classification.
 """
 function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
-    verb::Bool = true)
+    verb::Bool = true, diag_var::Bool = false)
     nBags = data["bagids"][end]
     
     train_inds = data["cvindexes"][which];
@@ -257,7 +258,7 @@ function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solve
     end
 
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb);
+    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
@@ -285,6 +286,7 @@ inputs["solver"] = "basic" # basic/sparse vbmf
 inputs["H"] = 1 # inner dimension of factorization
 inputs["scale_y"] = true # should Y be scaled to standard distribution?
 inputs["use_cvs"] = true # should cv_indexes be used instead of p_vec?
+inputs["diag_var"] = true # should homo- or heteroscedastic noise model be used?
 """
 function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
     p_vec = inputs["p_vec"]
@@ -296,16 +298,17 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
     # always compute the cv indexes partitioning first
     if inputs["use_cvs"]
         println("using cv_indexes")
+        print("n = ")
         a,b = size(data["cvindexes"])
         ncvs = a*b
         cv_res_mat = Array{Any,2}(ncvs, 7) # matrix of resulting error numbers for cv_indexes
 
         for n in 1:ncvs
-            println("n = $(n)")
+            print("$(n) ")
             cv_res_mat[n,1] = "cvs"
             try
                 mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, n, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb)
+                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"])
                 cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
@@ -314,18 +317,20 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             end         
         end
     end
+    println("")
 
     # then the partitioning given by a percentage of known bags p
     for ip in 1:np
         p = p_vec[ip]
-        println("p = $(p)")
+        println("p = $(p) ")
+        print("n = ")    
         
         for n in 1:nclass_iter
-            println("n = $(n)")    
+            print("$(n) ")    
             res_mat[(ip-1)*nclass_iter+n,1] = p
             try
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb)
+                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"])
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
@@ -334,6 +339,7 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             end          
         end
     end
+    println("")
 
     if inputs["use_cvs"]
         res = cat(1, cv_res_mat, res_mat)
@@ -431,6 +437,7 @@ function warmup(mil_path::String)
     inputs["dataset_name"] = ""
     inputs["scale_y"] = true
     inputs["use_cvs"] = false
+    inputs["diag_var"] = false
 
     output_path = "./warmup_garbage"
     file_inds = 1:1
