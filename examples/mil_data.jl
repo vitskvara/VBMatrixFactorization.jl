@@ -26,9 +26,17 @@ mil_path = "/home/vit/Dropbox/vyzkum/cisco/data/milproblems" # where the MIL .jl
 output_path = string("/home/vit/Dropbox/vyzkum/cisco/data/vbmf_classification/", inputs["solver"],
     "_", inputs["H"], "_", inputs["nclass_iter"]) # where output is stored
 
-if inputs["scale_y"]
-    output_path = string(output_path, "_scaled")
+### axolotl paths ###
+#mil_path = "/home/skvara/work/cisco/data/milproblems" # where the MIL .jld files are
+#output_path = string("/home/skvara/work/cisco/data/vbmf_classification/", inputs["solver"],
+#    "_", inputs["H"], "_", inputs["nclass_iter"]) # where output is stored
+
+if inputs["diag_var"]
+    output_path = string(output_path, "_het")
+else
+    output_path = string(output_path, "_hom")
 end
+
 # define which files to use
 files = readdir(mil_path)
 nfiles = size(files)[1]
