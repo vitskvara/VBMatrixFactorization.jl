@@ -549,11 +549,7 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     mean_table = table_summary(class_res, verb = verb)
 
     # to be able to work with old results
-    if isdefined(inputs["use_cvs"])
-        use_cvs = true
-    else
-        use_cvs = false
-    end
+    use_cvs = get(inputs, "use_cvs", false)
 
     # because of cv indexes results are in the same file
     if use_cvs
@@ -569,9 +565,9 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
 
     # plots
     ioff() # Interactive plotting OFF, necessary for inline plotting in IJulia
-    fig = figure("vbmfa classification statistics",figsize=(10,15))
-    suptitle("$dataset_name, $method solver, H = $H, $nclass_iter samples")
-    subplots_adjust(hspace=0.3)
+    fig = figure("vbmfa classification statistics",figsize=(8,13))
+    #suptitle("$dataset_name, $method solver, H = $H, $nclass_iter samples")
+    subplots_adjust(hspace=0.5)
 
     # mean values of error rates
     subplot(411) # Create the 1st axis of a 3x1 array of axes
@@ -579,7 +575,8 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     #ax[:set_yscale]("log") # Set the y axis to a logarithmic scale
     plot(1:np, mean_table[:,2], label = stat_names[1])
     plot(1:np, mean_table[:,3], label = stat_names[2])
-    title("Mean error values")
+    title("$dataset_name, $method solver, H = $H, $nclass_iter samples \n
+        Mean error values")
     xlabel("percentage of known labels")
     ylabel("")
     xticks(1:np, p_vec)
@@ -635,4 +632,5 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
         savefig(filename, format="eps", dpi=1000);
         println("Saving the figure to $filename.")
      end
+     close()
 end

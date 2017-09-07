@@ -9,7 +9,7 @@ verb = true
 inputs = Dict()
 #inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9] # the vector percentages of known labels 
 inputs["p_vec"] =  [0.01] 
-inputs["nclass_iter"] = 10 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
+inputs["nclass_iter"] = 1 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
 inputs["niter"] = 1 # iterations for vbmf solver
 inputs["eps"] = 1e-3 # the convergence limit for vbmf
 inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
@@ -40,8 +40,9 @@ end
 # define which files to use
 files = readdir(mil_path)
 nfiles = size(files)[1]
-file_inds = 1:1 # which MIL files you want to use
+#file_inds = 1:1 # which MIL files you want to use
 # file_inds = 1:nfiles # use all the files
+file_inds = nfiles-1:nfiles-1
 
 # run the main function
 #main("sparse", 1, 50, 1:nfiles)
