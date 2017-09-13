@@ -2,6 +2,7 @@ using JLD
 using PyPlot
 include("../src/util.jl")
 using StatsBase
+using VBMatrixFactorization
 
 """
     getBag(data, field, id)
@@ -104,6 +105,7 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
 
     L, M0 = size(Y0)
     L, M1 = size(Y1)
+    max_restarts = 10 # how many times should at most be vbmf restarted
 
     if solver == "basic"
         res0 = VBMatrixFactorization.vbmf_init(Y0, H)
@@ -112,15 +114,35 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
         # this is to decide whether to compute full covariance of A or just the diagonal
-        if (H*M0 > 200) || (H*M1 > 200)
-            full_cov = false
-        else
-            full_cov = true
+        #if (H*M0 > 200) || (H*M1 > 200)
+        #    full_cov = false
+        #else
+        #    full_cov = true
+        #end
+        full_cov = false
+
+        # do more random restarts if bad convergence
+        nres = 0
+        delta = 2*eps + 1.0
+        while (nres < max_restarts) && (delta > 2*eps)
+            res0 = VBMatrixFactorization.vbmf_sparse_init(Y0, H)
+            delta = VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
+            if isnan(delta)
+                delta = 2*eps + 1.0
+            end
+            nres += 1
         end
-        res0 = VBMatrixFactorization.vbmf_sparse_init(Y0, H)
-        VBMatrixFactorization.vbmf_sparse!(Y0, res0, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
-        res1 = VBMatrixFactorization.vbmf_sparse_init(Y1, H)
-        VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
+
+        nres = 0
+        delta = 2*eps + 1.0
+        while (nres < max_restarts) && (delta > 2*eps)
+            res1 = VBMatrixFactorization.vbmf_sparse_init(Y1, H)
+            delta = VBMatrixFactorization.vbmf_sparse!(Y1, res1, niter, eps = eps, diag_var = diag_var, verb = verb, full_cov = full_cov)
+            if isnan(delta)
+                delta = 2*eps + 1.0
+            end
+            nres += 1
+        end
     else
         error("Unknown type of solver. Use 'basic' or 'sparse'.")
         return
@@ -132,28 +154,119 @@ end
 """
     ols(Y::Array{Float64, 2}, B::Array{Float64, 2})
 
-Solves Y = B*X + E for unknown X.
+Solves min(||Y - B*X||^2) for unknown X.
 """
 function ols(Y::Array{Float64, 2}, B::Array{Float64, 2})
     return inv(B'*B)*B'*Y;
 end
 
 """
-    classify_one(res0, res1, Y)
+    rls(Y::Array{Float64, 2}, B::Array{Float64, 2}, lambda::Float64)
 
-Using training data res0 and res1, classifies the specimen Y.
+Solves min(||Y - B*X||^2 + lambda*||X||^2) for unknown X.
 """
-function classify(res0, res1, Y::Array{Float64, 2})
+function rls(Y::Array{Float64, 2}, B::Array{Float64, 2}, lambda::Float64)
+    m, n = size(B)
+    return inv(B'*B + lambda*eye(n))*B'*Y;
+end
+
+"""
+    vbls(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int)
+
+Solves the factorization Y = BA^T + E for fixed B and CB that is stored in params.
+"""
+function vbls!(Y::Array{Float64, 2}, params, niter::Int;
+    diag_var::Bool = false, full_cov::Bool = false)
+    for iter in 1:niter
+        if typeof(params) == VBMatrixFactorization.vbmf_parameters
+            VBMatrixFactorization.updateA!(Y, params)
+            VBMatrixFactorization.updateCA!(params)
+            VBMatrixFactorization.updateSigma2!(Y, params)
+        elseif typeof(params) == VBMatrixFactorization.vbmf_sparse_parameters
+            VBMatrixFactorization.updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
+            VBMatrixFactorization.updateCA!(params)
+            VBMatrixFactorization.updateSigma!(Y, params, diag_var = diag_var)
+        end
+    end
+    # finally, compute the estimate of Y
+    VBMatrixFactorization.updateYHat!(params)
+    return params.AHat
+end
+
+"""
+    copy_vbmf_params(Y::Array{Float64, 2}, old_params)
+
+Creates a new instance of vbmf_parameters/vbmf_sparse_parameters from an old one 
+to be used by vbls classification.
+"""
+function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
+    if typeof(old_params) == VBMatrixFactorization.vbmf_parameters
+        # init a new structure
+        params = VBMatrixFactorization.vbmf_init(Y, old_params.H,
+         sigma2 = old_params.sigma2, H1 = old_params.H1, labels = old_params.labels)
+        # copy the parameters that wont change
+        params.BHat = old_params.BHat
+        params.SigmaB = old_params.SigmaB
+        params.CB = old_params.CB
+        params.invCB = old_params.invCB
+    elseif typeof(old_params) == VBMatrixFactorization.vbmf_sparse_parameters
+        # init a new structure
+        params = VBMatrixFactorization.vbmf_sparse_init(Y, old_params.H, alpha0 = old_params.alpha0, 
+                beta0 = old_params.beta0, gamma0 = old_params.gamma0, delta0 = old_params.delta0,
+                eta0 = old_params.eta0, zeta0 = old_params.zeta0, H1 = old_params.H1, 
+                labels = old_params.labels)
+        # copy the parameters that wont change
+        params.BHat = old_params.BHat
+        params.SigmaB = old_params.SigmaB
+        params.CB = old_params.CB
+        params.gamma = old_params.gamma
+        params.delta = old_params.delta
+    end
+
+    return params
+end
+
+"""
+    classify_one(res0, res1, Y; class_alg = "ols")
+
+Using training data res0 and res1, classifies the specimen Y. 
+Argument class_alg specifies the way in which the A matrix 
+for a the new specimen is computed. Either "ols", "rls" or "vbls"
+is used.
+"""
+function classify(res0, res1, Y::Array{Float64, 2}; class_alg::String = "ols")
     # compute the ols estimate of YHat and choose the label
     # depending on the distance to the real Y matrix.
-    B0 = res0.BHat
-    YHat0 = B0*ols(Y, B0)
-    err0 = norm(Y - YHat0)
+    if class_alg == "ols"
+        B0 = res0.BHat
+        AT0 =  ols(Y, B0)
+        B1 = res1.BHat
+        AT1 =  ols(Y, B1)
+    elseif class_alg == "rls"
+        # rls is used mainly for stabilization of the inversion
+        # therefore lambda does not have to be very large
+        B0 = res0.BHat
+        AT0 =  rls(Y, B0, 1e-2)
+        B1 = res1.BHat
+        AT1 =  rls(Y, B1, 1e-2)
+    elseif class_alg == "vbls"
+        # this should be more optimal due to using the estimated 
+        # covariances 
+        # init a new instance of params
+        vbparams = copy_vbmf_params(Y, res0)
+        vbls!(Y, vbparams, 150)
+        AT0 = vbparams.AHat'
 
-    B1 = res1.BHat
-    YHat1 = B1*ols(Y, B1)
-    err1 = norm(Y - YHat1)
+        vbparams = copy_vbmf_params(Y, res1)
+        vbls!(Y, vbparams, 150)
+        AT1 = vbparams.AHat'
+    end
+    
+    # compute the errors
+    err0 = norm(Y - res0.BHat*AT0)
+    err1 = norm(Y - res1.BHat*AT1)
 
+    # produce label based on the smaller error
     if err0 > err1
         label = 1
     else
@@ -169,12 +282,12 @@ end
 Using training data res0 and res1, test the classification of Y.
 Returns one of the set {-1,0,1} = {false positive, match, false negative}.
 """
-function test_one(res0, res1, bag_id::Int, data::Dict{String,Any})
+function test_one(res0, res1, bag_id::Int, data::Dict{String,Any}; class_alg::String = "ols")
     Y = getY(data, bag_id)
 
     label = getLabel(data, bag_id)
 
-    est_label, err0, err1 = classify(res0, res1, Y)
+    est_label, err0, err1 = classify(res0, res1, Y, class_alg = class_alg)
 
     return label - est_label
 end
@@ -185,7 +298,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols")
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -193,7 +306,7 @@ function test_classification(res0, res1, data::Dict{String,Any}, bag_ids)
     fp = 0 # number of false positives
     fn = 0 # number of false negatives
     for id in bag_ids
-        res = test_one(res0, res1, id, data)
+        res = test_one(res0, res1, id, data, class_alg = class_alg)
         
         if res == 1
             fn += 1
@@ -222,7 +335,7 @@ end
 For a dataset and a percentage of known labels, asses the classification.
 """
 function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
-    verb::Bool = true, diag_var::Bool = false)
+    verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
     nBags = data["bagids"][end]
 
     rand_inds = sample(1:nBags, nBags, replace = false);
@@ -236,7 +349,7 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg)
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -247,7 +360,7 @@ end
 For a dataset and a cv_index array index "which", asses the classification.
 """
 function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
-    verb::Bool = true, diag_var::Bool = false)
+    verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
     nBags = data["bagids"][end]
     
     train_inds = data["cvindexes"][which];
@@ -264,7 +377,7 @@ function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solve
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg)
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -287,6 +400,7 @@ inputs["H"] = 1 # inner dimension of factorization
 inputs["scale_y"] = true # should Y be scaled to standard distribution?
 inputs["use_cvs"] = true # should cv_indexes be used instead of p_vec?
 inputs["diag_var"] = true # should homo- or heteroscedastic noise model be used?
+inputs["class_alg"] = "ols" #/"rls"/"vbls" - how should the classification be computed
 """
 function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
     p_vec = inputs["p_vec"]
@@ -308,7 +422,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             cv_res_mat[n,1] = "cvs"
             try
                 mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, n, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"])
+                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
+                    class_alg = inputs["class_alg"])
                 cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
@@ -330,7 +445,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             res_mat[(ip-1)*nclass_iter+n,1] = p
             try
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"])
+                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
+                    class_alg = inputs["class_alg"])
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
@@ -438,6 +554,7 @@ function warmup(mil_path::String)
     inputs["scale_y"] = true
     inputs["use_cvs"] = false
     inputs["diag_var"] = false
+    inputs["class_alg"] = "vbls"
 
     output_path = "./warmup_garbage"
     file_inds = 1:1
@@ -551,6 +668,14 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     # to be able to work with old results
     use_cvs = get(inputs, "use_cvs", false)
 
+    #noise model
+    heteroscedastic = get(inputs, "diag_var", false)
+    if heteroscedastic
+        noise_model = "heteroscedastic"
+    else
+        noise_model = "homoscedastic"
+    end
+
     # because of cv indexes results are in the same file
     if use_cvs
         cv_mean_table = mean_table[1, :]        
@@ -575,7 +700,7 @@ function plot_statistics(class_res::Dict{String,Any}; verb::Bool = false, save_p
     #ax[:set_yscale]("log") # Set the y axis to a logarithmic scale
     plot(1:np, mean_table[:,2], label = stat_names[1])
     plot(1:np, mean_table[:,3], label = stat_names[2])
-    title("$dataset_name, $method solver, H = $H, $nclass_iter samples \n
+    title("$dataset_name, $method solver, H = $H, $nclass_iter samples, $noise_model noise: \n
         Mean error values")
     xlabel("percentage of known labels")
     ylabel("")

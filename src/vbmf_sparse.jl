@@ -351,7 +351,13 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
 
     # choice of convergence control variable
     convergence_var = :BHat
-    old = copy(getfield(params, convergence_var))
+    #convergence_var = :dY
+
+    if convergence_var == :dY
+        old = Y - params.YHat
+    else
+        old = copy(getfield(params, convergence_var))
+    end
     d = eps + 1.0 # delta
     i = 1
 
@@ -370,8 +376,14 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
         end
 
         # check convergence
-        d = delta(getfield(params, convergence_var), old)
-        old = copy(getfield(params, convergence_var))
+        if convergence_var == :dY
+            updateYHat!(params)
+            d = delta(Y - params.YHat, old)
+            old = Y - params.YHat
+        else
+            d = delta(getfield(params, convergence_var), old)
+            old = copy(getfield(params, convergence_var))
+        end
         i += 1
     end    
 
@@ -389,7 +401,7 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
         save_log(logVar, Y, priors, logdir, desc = desc)
     end
 
-    return params
+    return d
 end
 
 """
@@ -407,5 +419,5 @@ function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, ni
     vbmf_sparse!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
         logdir = logdir, desc = desc, verb = verb)
 
-    return params
+    return params, d
 end

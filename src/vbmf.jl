@@ -157,7 +157,8 @@ function updateSigma2!(Y::Array{Float64,2}, params::vbmf_parameters)
 end
 
 """
-    vbmf!(Y::Array{Float64, 2}, params::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, est_var = false)
+    vbmf!(Y::Array{Float64, 2}, params::vbmf_parameters, niter::Int, eps::Float64 = 1e-6, est_covs = false, 
+    est_var = false, logdir = "", desc = "", verb = false)
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
 Estimation of prior covariance cA and cB and of variance sigma can be turned on and off. Estimates 
