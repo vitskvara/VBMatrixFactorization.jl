@@ -114,12 +114,11 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
         # this is to decide whether to compute full covariance of A or just the diagonal
-        #if (H*M0 > 200) || (H*M1 > 200)
-        #    full_cov = false
-        #else
-        #    full_cov = true
-        #end
-        full_cov = false
+        if (H*M0 > 200) || (H*M1 > 200)
+            full_cov = false
+        else
+            full_cov = true
+        end
 
         # do more random restarts if bad convergence
         nres = 0
