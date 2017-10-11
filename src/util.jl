@@ -52,6 +52,17 @@ function scaleY(Y::Array{Float64,2})
 end
 
 """
+    scaleY(Y::Array{Float32,2})
+
+Scales down a 2 dimensional array so it has approx. standard normal distribution.
+"""
+function scaleY(Y::Array{Float32,2})
+    Y64 = convert(Array{Float64,2}, Y)
+    Y64 = scaleY(Y64)
+    return convert(Array{Float32,2}, Y64)
+end
+
+"""
     traceXTY(X, Y)
 
 Computes tr(X^TY) more effectively than trace(X'*Y). 

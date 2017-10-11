@@ -170,7 +170,7 @@ function rls(Y::Array{Float64, 2}, B::Array{Float64, 2}, lambda::Float64)
 end
 
 """
-    vbls(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int)
+    vbls(Y::Array{Float64, 2}, params, niter::Int)
 
 Solves the factorization Y = BA^T + E for fixed B and CB that is stored in params.
 """
@@ -201,8 +201,9 @@ to be used by vbls classification.
 function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
     if typeof(old_params) == VBMatrixFactorization.vbmf_parameters
         # init a new structure
+        # dont copy the labels and H1, that probably doesnt make any sense now!
         params = VBMatrixFactorization.vbmf_init(Y, old_params.H,
-         sigma2 = old_params.sigma2, H1 = old_params.H1, labels = old_params.labels)
+         sigma2 = old_params.sigma2)
         # copy the parameters that wont change
         params.BHat = old_params.BHat
         params.SigmaB = old_params.SigmaB
@@ -212,8 +213,7 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         # init a new structure
         params = VBMatrixFactorization.vbmf_sparse_init(Y, old_params.H, alpha0 = old_params.alpha0, 
                 beta0 = old_params.beta0, gamma0 = old_params.gamma0, delta0 = old_params.delta0,
-                eta0 = old_params.eta0, zeta0 = old_params.zeta0, H1 = old_params.H1, 
-                labels = old_params.labels)
+                eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
         params.BHat = old_params.BHat
         params.SigmaB = old_params.SigmaB
@@ -547,7 +547,7 @@ function warmup(mil_path::String)
     inputs["nclass_iter"] = 1 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
     inputs["niter"] = 1 # iterations for vbmf solver
     inputs["eps"] = 1e-3 # the convergence limit for vbmf
-    inputs["solver"] = "basic" # basic/sparse for non/full ARD on A matrix in vbmf
+    inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
     inputs["H"] = 1 # inner dimension of the factorization
     inputs["dataset_name"] = ""
     inputs["scale_y"] = true

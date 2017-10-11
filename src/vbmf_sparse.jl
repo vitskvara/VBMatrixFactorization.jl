@@ -88,7 +88,7 @@ type vbmf_sparse_parameters
 end
 
 """
-    vbmf_sparse_init(Y::Array{Float64,2}, L::Int, M::Int, H::Int; ca::Float64 = 1.0, 
+    vbmf_sparse_init(Y::Array{Float64,2}, H::Int; ca::Float64 = 1.0, 
     alpha0::Float64 = 1e-10, beta0::Float64 = 1e-10, cb::Float64 = 1.0, 
     gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
     sigma::Float64 = 1.0, eta0::Float64 = 1e-10, zeta0::Float64 = 1e-10,
@@ -416,7 +416,7 @@ function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, ni
     params = copy(params_in)
 
     # run the algorithm
-    vbmf_sparse!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
+    d = vbmf_sparse!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
         logdir = logdir, desc = desc, verb = verb)
 
     return params, d
