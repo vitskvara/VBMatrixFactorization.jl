@@ -120,7 +120,7 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         #    full_cov = true
         #end
         full_cov = false
-        
+
         # do more random restarts if bad convergence
         nres = 0
         delta = 2*eps + 1.0
@@ -226,6 +226,85 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
     return params
 end
 
+### this is for the new classification
+
+"""
+    train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
+
+Trains the localized version of VBMF.
+"""
+function train_local(data, train_inds, H, H1, niter; eps = 1e-3, verb = false, diag_var = false)
+    Y0_train, Y1_train = get_matrices(data, train_inds);
+    Y_train = cat(2, Y0_train, Y1_train)
+    L, M0 = size(Y0_train)
+    L, M1 = size(Y1_train)
+    L, M = size(Y_train)
+    params = VBMatrixFactorization.vbmf_sparse_init(Y_train, H, H1 = H1, labels = Array(1:M0));
+
+    max_restarts = 10
+    nres = 0
+    delta = norm(params.AHat) + norm(params.BHat)
+    while (nres < max_restarts) && ((norm(params.AHat)) < delta) && ((norm(params.BHat)) < delta)
+        d = VBMatrixFactorization.vbmf_sparse!(Y_train, params, niter, eps = eps, verb = verb, diag_var = diag_var);
+        delta = 1e-4
+    end
+
+    return params
+end
+
+"""
+    factorize_bag(Y::Array{Float64,2}, params)
+
+Computes the two factorizations Y = B0*A0^T and Y = [B0 B1]*A1^T. 
+Used instead of the train() function.
+"""
+function factorize_bag(Y::Array{Float64,2}, params)
+    H = params.H
+    H1 = params.H1
+    
+    # first get the A matrix for the decomposition Y = B0*A0'
+    params0 = VBMatrixFactorization.vbmf_sparse_init(Y, H-H1);
+    # copy the parameters that wont change
+    params0.BHat = params.BHat[:,1:(H-H1)];
+    params0.SigmaB = params.SigmaB[1:(H-H1),1:(H-H1)];
+    params0.CB = params.CB[1:(H-H1)]
+    params0.gamma = params.gamma
+    params0.delta = params.delta[1:(H-H1)]
+    A0 = vbls!(Y, params0, 20)
+    
+    # now do the same with full B matrix for the decomposition Y = B0*A10' + B1*A11'
+    params1 = copy_vbmf_params(Y, params)
+    A1 = vbls!(Y, params1, 20)
+    
+    return params0, params1
+end
+
+"""
+    factorization_error(Y::Array{Float64,2}, params0, params1) 
+
+What are the errors produced by factorizations from factorize_bag()?
+"""
+function factorization_error(Y::Array{Float64,2}, params0, params1) 
+    H0 = params0.H
+    
+    #extract B0 and B1
+    B0 = params0.BHat
+    B1 =  params1.BHat[:,(H0+1):end]    
+    # also extract the submatrices A10 and A11
+    A10 = params1.AHat[:, 1:H0];
+    A11 = params1.AHat[:, (H0+1):end];
+    
+    # now compute the deltas
+    delta0 = norm(Y - params0.YHat)
+    delta1 = norm(Y - params1.YHat)
+    delta10 = norm(Y - B0*A10')
+    delta11 = norm(Y - B1*A11')
+    
+    return delta0, delta1, delta10, delta11
+end
+
+#####################
+
 """
     classify_one(res0, res1, Y; class_alg = "ols")
 
@@ -234,43 +313,54 @@ Argument class_alg specifies the way in which the A matrix
 for a the new specimen is computed. Either "ols", "rls" or "vbls"
 is used.
 """
-function classify(res0, res1, Y::Array{Float64, 2}; class_alg::String = "ols")
-    # compute the ols estimate of YHat and choose the label
-    # depending on the distance to the real Y matrix.
-    if class_alg == "ols"
-        B0 = res0.BHat
-        AT0 =  ols(Y, B0)
-        B1 = res1.BHat
-        AT1 =  ols(Y, B1)
-    elseif class_alg == "rls"
-        # rls is used mainly for stabilization of the inversion
-        # therefore lambda does not have to be very large
-        B0 = res0.BHat
-        AT0 =  rls(Y, B0, 1e-2)
-        B1 = res1.BHat
-        AT1 =  rls(Y, B1, 1e-2)
-    elseif class_alg == "vbls"
-        # this should be more optimal due to using the estimated 
-        # covariances 
-        # init a new instance of params
-        vbparams = copy_vbmf_params(Y, res0)
-        vbls!(Y, vbparams, 150)
-        AT0 = vbparams.AHat'
+function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg::String = "ols")
+    if class_alg in ["ols", "rls", "vbls"]
+        # compute the ols estimate of YHat and choose the label
+        # depending on the distance to the real Y matrix.
+        if class_alg == "ols"
+            B0 = res0.BHat
+            AT0 =  ols(Y, B0)
+            B1 = res1.BHat
+            AT1 =  ols(Y, B1)
+        elseif class_alg == "rls"
+            # rls is used mainly for stabilization of the inversion
+            # therefore lambda does not have to be very large
+            B0 = res0.BHat
+            AT0 =  rls(Y, B0, 1e-2)
+            B1 = res1.BHat
+            AT1 =  rls(Y, B1, 1e-2)
+        elseif class_alg == "vbls"
+            # this should be more optimal due to using the estimated 
+            # covariances 
+            # init a new instance of params
+            vbparams = copy_vbmf_params(Y, res0)
+            vbls!(Y, vbparams, 150)
+            AT0 = vbparams.AHat'
 
-        vbparams = copy_vbmf_params(Y, res1)
-        vbls!(Y, vbparams, 150)
-        AT1 = vbparams.AHat'
-    end
-    
-    # compute the errors
-    err0 = norm(Y - res0.BHat*AT0)
-    err1 = norm(Y - res1.BHat*AT1)
+            vbparams = copy_vbmf_params(Y, res1)
+            vbls!(Y, vbparams, 150)
+            AT1 = vbparams.AHat'
+        end
+        
+        # compute the errors
+        err0 = norm(Y - res0.BHat*AT0)
+        err1 = norm(Y - res1.BHat*AT1)
 
-    # produce label based on the smaller error
-    if err0 > err1
-        label = 1
-    else
-        label = 0
+        # produce label based on the smaller error
+        if err0 > err1
+            label = 1
+        else
+            label = 0
+        end
+    else # use the better approach
+        params0, params1 = factorize_bag(Y, res0)
+
+        err0, err1, err10, err11 = factorization_error(Y, params0, params1)
+        if abs((err0-err1)/err0) < threshold
+            label = 0
+        else
+            label = 1
+        end
     end
 
     return label, err0, err1
@@ -282,13 +372,12 @@ end
 Using training data res0 and res1, test the classification of Y.
 Returns one of the set {-1,0,1} = {false positive, match, false negative}.
 """
-function test_one(res0, res1, bag_id::Int, data::Dict{String,Any}; class_alg::String = "ols")
+function test_one(res0, res1, bag_id::Int, data::Dict{String,Any}; class_alg::String = "ols", threshold = 1e-1)
     Y = getY(data, bag_id)
 
     label = getLabel(data, bag_id)
 
-    est_label, err0, err1 = classify(res0, res1, Y, class_alg = class_alg)
-
+    est_label, err0, err1 = classify(res0, res1, Y, class_alg = class_alg, threshold = threshold)
     return label - est_label
 end
 
@@ -298,7 +387,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols")
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols", threshold = 1e-1)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -306,7 +395,7 @@ function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_
     fp = 0 # number of false positives
     fn = 0 # number of false negatives
     for id in bag_ids
-        res = test_one(res0, res1, id, data, class_alg = class_alg)
+        res = test_one(res0, res1, id, data, class_alg = class_alg, threshold = threshold)
         
         if res == 1
             fn += 1
@@ -334,7 +423,8 @@ end
 
 For a dataset and a percentage of known labels, asses the classification.
 """
-function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
+function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; H1::Int = 1,
+ eps::Float64 = 1e-6, 
     verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
     nBags = data["bagids"][end]
 
@@ -343,7 +433,12 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     test_inds = rand_inds[Int(floor(p_known*nBags))+1:end];
 
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    if class_alg in ["ols", "rls", "vbls"]
+        res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    else # use the better approach
+        res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
+        res1 = 0 # this does not actually make a lot of sense
+    end
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
@@ -359,25 +454,23 @@ end
 
 For a dataset and a cv_index array index "which", asses the classification.
 """
-function validate_with_cvs(data::Dict{String,Any}, which::Int, niter::Int, solver::String, H::Int; eps::Float64 = 1e-6, 
+function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter::Int, solver::String, H::Int; H1::Int = 1,
+ eps::Float64 = 1e-6, 
     verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
-    nBags = data["bagids"][end]
-    
-    train_inds = data["cvindexes"][which];
-    # select test indices
-    test_inds = 1:nBags
-    for i in 1:size(train_inds)[1]
-        test_inds = test_inds[test_inds .!= train_inds[i]]
-    end
-
     # training
-    res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    if class_alg in ["ols", "rls", "vbls"]
+        res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    else # use the better approach
+        res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
+        res1 = 0 # this does not actually make a lot of sense
+    end
     if res0 == 0
         return -1.0, -1.0, -1.0, -1.0, -1.0, -1.0
     end
 
     # validation
     mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg)
+
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -412,25 +505,45 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
     # always compute the cv indexes partitioning first
     if inputs["use_cvs"]
         println("using cv_indexes")
-        print("n = ")
-        a,b = size(data["cvindexes"])
-        ncvs = a*b
+        nrows, nfolds  = size(data["cvindexes"])
+        ncvs = nrows*nfolds
         cv_res_mat = Array{Any,2}(ncvs, 7) # matrix of resulting error numbers for cv_indexes
 
-        for n in 1:ncvs
-            print("$(n) ")
+        n = 1
+        for row in 1:nrows
+            println("row = $(row)")
+            print("fold = ")
             cv_res_mat[n,1] = "cvs"
-            try
-                mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, n, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
-                    class_alg = inputs["class_alg"])
-                cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
-            catch y 
-                warn("Something went wrong during vbmf, no output produced.")
-                println(y)
-                cv_res_mat[n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
-            end         
+
+            cv_indices = data["cvindexes"][row,:];
+            # from the cv indices, choose one of the folds as validation and the rest as training
+            for fold in 1:nfolds     
+                print("$fold ")  
+                # select test indices
+                test_inds = cv_indices[fold]
+                train_inds = Array{Int64,1}()
+                # create the train indices array
+                for j in 1:nfolds
+                    if j!=fold
+                        train_inds = cat(1, train_inds, cv_indices[j])
+                    end
+                end
+
+                try
+                    mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, test_inds, train_inds, inputs["niter"], 
+                        inputs["solver"], 
+                        inputs["H"], H1 = inputs["H1"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
+                        class_alg = inputs["class_alg"])
+                    cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
+                catch y 
+                    warn("Something went wrong during vbmf, no output produced.")
+                    println(y)
+                    cv_res_mat[n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
+                end       
+            end 
+            n += 1 
         end
+
     end
     println("")
 
@@ -445,7 +558,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             res_mat[(ip-1)*nclass_iter+n,1] = p
             try
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
-                    inputs["H"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
+                    inputs["H"], H1 = inputs["H1"],
+                     eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
                     class_alg = inputs["class_alg"])
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
@@ -555,6 +669,7 @@ function warmup(mil_path::String)
     inputs["use_cvs"] = false
     inputs["diag_var"] = false
     inputs["class_alg"] = "vbls"
+    inputs["H1"] = 1
 
     output_path = "./warmup_garbage"
     file_inds = 1:1
