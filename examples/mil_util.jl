@@ -233,7 +233,7 @@ end
 
 Trains the localized version of VBMF.
 """
-function train_local(data, train_inds, H, H1, niter; eps = 1e-3, verb = false, diag_var = false)
+function train_local(data, train_inds, H, H1, niter; eps = 1e-4, verb = false, diag_var = false)
     Y0_train, Y1_train = get_matrices(data, train_inds);
     Y_train = cat(2, Y0_train, Y1_train)
     L, M0 = size(Y0_train)
@@ -246,7 +246,8 @@ function train_local(data, train_inds, H, H1, niter; eps = 1e-3, verb = false, d
     delta = norm(params.AHat) + norm(params.BHat)
     while (nres < max_restarts) && ((norm(params.AHat)) < delta) && ((norm(params.BHat)) < delta)
         d = VBMatrixFactorization.vbmf_sparse!(Y_train, params, niter, eps = eps, verb = verb, diag_var = diag_var);
-        delta = 1e-4
+        delta = 1e-2
+        nres+=1
     end
 
     return params
@@ -387,7 +388,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols", threshold = 1e-1)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols", threshold = 2e-1)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
