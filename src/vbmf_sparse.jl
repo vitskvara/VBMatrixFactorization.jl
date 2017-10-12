@@ -385,7 +385,8 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
             old = copy(getfield(params, convergence_var))
         end
         i += 1
-        println(lowerBound(Y, params))
+        #println(lowerBound(Y, params))
+        #println(lowerBound2(Y, params))
     end    
 
     # finally, compute the estimate of Y
@@ -431,10 +432,37 @@ Compute the lower bound for logarithm of data distribution.
 function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     L = 0.0
     # E[lnp(Y|params)]
-    L += -params.L*params.M/2*ln2pi + params.L*params.M/2*gammaEntropy(params.eta, params.zeta) - 
-         params.sigmaHat/2*(params.trYTY - 2*traceXTY(params.BHat, Y*params.AHat) + 
-            traceXTY(params.AHat'*params.AHat + params.SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB))
+    L += - params.L*params.M/2*ln2pi + params.L*params.M/2*gammaELn(params.eta, params.zeta) 
+    L += - params.sigmaHat/2*(params.trYTY - 2*traceXTY(params.BHat, Y*params.AHat)  
+         + traceXTY(params.AHat'*params.AHat + params.SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB))
     # E[lnp(vec(A'))]
-    L += -params.M*params.H/2*ln2pi + 1/2
+    L += - params.M*params.H/2*ln2pi + 1/2*sum(map(gammaELn, params.alpha*ones(size(params.beta)), params.beta))
+    L += - (1/2*params.CA'*(params.ATVecHat.^2 + params.diagSigmaATVec))[1]
+    # E[lnp(B)]
+    L += - params.L*params.H/2*ln2pi
+    L += params.L/2*sum(map(gammaELn, params.gamma*ones(size(params.delta)), params.delta))
+    L += - 1/2*traceXTY(diagm(params.CB), (params.BHat'*params.BHat + params.L*params.SigmaB))  
+    # E[lnp(sigma)]
+    L += params.eta0*log(params.zeta0) - lgamma(params.eta0) 
+    L += (params.eta0 - 1)*gammaELn(params.eta, params.zeta) - params.zeta0*params.sigmaHat
+    # E[lnp(CA)]
+    L += params.H*params.M*(params.alpha0*log(params.beta0) - lgamma(params.alpha0))
+    L += (params.alpha0 - 1)*sum(map(gammaELn, params.alpha*ones(size(params.beta)), params.beta))
+    L += - params.beta0*sum(params.CA)
+    # E[lnp(CB)]
+    L += params.H*(params.gamma0*log(params.delta0) - lgamma(params.gamma0))
+    L += (params.gamma0 - 1)*sum(map(gammaELn, params.gamma*ones(size(params.delta)), params.delta))
+    L += - params.gamma0*sum(params.CB)
+
+    # H(vec(A'))
+    L += normalEntropy(params.diagSigmaATVec)
+    # H(B)
+    L += normalEntropy(kron(params.SigmaB,eye(params.L))) # this also causes -inf
+    # H(sigma)
+    L += gammaEntropy(params.eta, params.zeta)
+    # H(CA)
+    L += sum(map(gammaEntropy, params.alpha*ones(size(params.beta)), params.beta))
+    # H(CB)
+    L += sum(map(gammaEntropy, params.gamma*ones(size(params.delta)), params.delta))
     return L
 end

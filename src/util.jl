@@ -87,6 +87,18 @@ function normalEntropy(Sigma::Array{Float64,2})
 end
 
 """
+    normalEntropy(diagSigma)
+
+Computes the entropy of a multivariate normal distribution with 
+diagonal of covariance diagSigma.
+"""
+function normalEntropy(diagSigma::Array{Float64,1})
+    n = size(diagSigma)[1]
+
+    return n/2 + n/2*ln2pi + 1/2*sum(log(diagSigma))
+end
+
+"""
     gammaEntropy(a, b)
 
 Computes the entropy of a gamma distribution with shape a and rate b.
