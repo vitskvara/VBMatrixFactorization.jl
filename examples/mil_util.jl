@@ -514,11 +514,11 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
         for row in 1:nrows
             println("row = $(row)")
             print("fold = ")
-            cv_res_mat[n,1] = "cvs"
 
             cv_indices = data["cvindexes"][row,:];
             # from the cv indices, choose one of the folds as validation and the rest as training
-            for fold in 1:nfolds     
+            for fold in 1:nfolds    
+                cv_res_mat[n,1] = "cvs" 
                 print("$fold ")  
                 # select test indices
                 test_inds = cv_indices[fold]
@@ -541,8 +541,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                     println(y)
                     cv_res_mat[n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
                 end       
+                n += 1 
             end 
-            n += 1 
         end
 
     end

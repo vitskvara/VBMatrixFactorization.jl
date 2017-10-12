@@ -385,6 +385,7 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
             old = copy(getfield(params, convergence_var))
         end
         i += 1
+        println(lowerBound(Y, params))
     end    
 
     # finally, compute the estimate of Y
@@ -420,4 +421,20 @@ function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, ni
         logdir = logdir, desc = desc, verb = verb)
 
     return params, d
+end
+
+"""
+    lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+
+Compute the lower bound for logarithm of data distribution.
+"""
+function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
+    L = 0.0
+    # E[lnp(Y|params)]
+    L += -params.L*params.M/2*ln2pi + params.L*params.M/2*gammaEntropy(params.eta, params.zeta) - 
+         params.sigmaHat/2*(params.trYTY - 2*traceXTY(params.BHat, Y*params.AHat) + 
+            traceXTY(params.AHat'*params.AHat + params.SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB))
+    # E[lnp(vec(A'))]
+    L += -params.M*params.H/2*ln2pi + 1/2
+    return L
 end

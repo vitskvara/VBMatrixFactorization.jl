@@ -1,3 +1,4 @@
+const ln2pi = log(2*pi);
 
 """
     norm2(x::Array{Float64,1})
@@ -70,3 +71,36 @@ Computes tr(X^TY) more effectively than trace(X'*Y).
 function traceXTY(X::Array{Float64,2}, Y::Array{Float64,2})
     return(sum(X.*Y))
 end
+
+"""
+    normalEntropy(Sigma)
+
+Computes the entropy of a multivariate normal distribution with covariance Sigma.
+"""
+function normalEntropy(Sigma::Array{Float64,2})
+    m, n = size(Sigma)
+    if n != m
+        error("Sigma must be square!")
+    end
+
+    return m/2 + m/2*ln2pi + 1/2*log(det(Sigma))
+end
+
+"""
+    gammaEntropy(a, b)
+
+Computes the entropy of a gamma distribution with shape a and rate b.
+"""
+function gammaEntropy(a::Float64, b::Float64)
+    return a + log(b) + lgamma(a) + (1-a)*digamma(a)
+end
+
+"""
+    gammaELn(a, b)
+
+Computes E[ln(x)] where x follows gamma distribution with shape a and rate b.
+"""
+function gammaELn(a::Float64, b::Float64)
+    return digamma(a) - log(b)
+end
+
