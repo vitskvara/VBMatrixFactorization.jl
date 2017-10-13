@@ -259,7 +259,7 @@ end
 Computes the two factorizations Y = B0*A0^T and Y = [B0 B1]*A1^T. 
 Used instead of the train() function.
 """
-function factorize_bag(Y::Array{Float64,2}, params)
+function factorize_bag(Y::Array{Float64,2}, params; niter = 20)
     H = params.H
     H1 = params.H1
     
@@ -271,11 +271,11 @@ function factorize_bag(Y::Array{Float64,2}, params)
     params0.CB = params.CB[1:(H-H1)]
     params0.gamma = params.gamma
     params0.delta = params.delta[1:(H-H1)]
-    A0 = vbls!(Y, params0, 20)
+    A0 = vbls!(Y, params0, niter)
     
     # now do the same with full B matrix for the decomposition Y = B0*A10' + B1*A11'
     params1 = copy_vbmf_params(Y, params)
-    A1 = vbls!(Y, params1, 20)
+    A1 = vbls!(Y, params1, niter)
     
     return params0, params1
 end
