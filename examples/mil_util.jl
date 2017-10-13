@@ -403,7 +403,7 @@ end
 For given bag_ids, it tests them all against a traning dataset. Returns 
 mean error rate, equal error rate and false positives and negatives count.
 """
-function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols", threshold = 2e-1)
+function test_classification(res0, res1, data::Dict{String,Any}, bag_ids; class_alg::String = "ols", threshold = 1e-1)
     n = size(bag_ids)[1]
     n0 = 0 # number of negative/positive bags tested
     n1 = 0
@@ -440,7 +440,7 @@ end
 For a dataset and a percentage of known labels, asses the classification.
 """
 function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::String, H::Int; H1::Int = 1,
- eps::Float64 = 1e-6, 
+ eps::Float64 = 1e-6, threshold = 1e-1,
     verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
     nBags = data["bagids"][end]
 
@@ -460,7 +460,7 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg, threshold = threshold)
 
     return mer, eer, fp, fn, n0, n1
 end
@@ -471,7 +471,7 @@ end
 For a dataset and a cv_index array index "which", asses the classification.
 """
 function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter::Int, solver::String, H::Int; H1::Int = 1,
- eps::Float64 = 1e-6, 
+ eps::Float64 = 1e-6, threshold = 1e-1,
     verb::Bool = true, diag_var::Bool = false, class_alg::String = "ols")
     # training
     if class_alg in ["ols", "rls", "vbls"]
@@ -485,7 +485,7 @@ function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter:
     end
 
     # validation
-    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg)
+    mer, eer, fp, fn, n0, n1 = test_classification(res0, res1, data, test_inds, class_alg = class_alg, threshold = threshold)
 
 
     return mer, eer, fp, fn, n0, n1
@@ -551,7 +551,7 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                     mer, eer, fp, fn, n0, n1 = validate_with_cvs(data, test_inds, train_inds, inputs["niter"], 
                         inputs["solver"], 
                         inputs["H"], H1 = inputs["H1"], eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
-                        class_alg = inputs["class_alg"])
+                        class_alg = inputs["class_alg"], threshold = inputs["threshold"])
                     cv_res_mat[n,2:end] = [mer, eer, fp, fn, n0, n1] 
                 catch y 
                     warn("Something went wrong during vbmf, no output produced.")
@@ -578,7 +578,7 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                 mer, eer, fp, fn, n0, n1 = validate(p, data, inputs["niter"], inputs["solver"], 
                     inputs["H"], H1 = inputs["H1"],
                      eps = inputs["eps"], verb = verb, diag_var = inputs["diag_var"],
-                    class_alg = inputs["class_alg"])
+                    class_alg = inputs["class_alg"], threshold = inputs["threshold"])
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [mer, eer, fp, fn, n0, n1] 
             catch y 
                 warn("Something went wrong during vbmf, no output produced.")
@@ -688,6 +688,7 @@ function warmup(mil_path::String)
     inputs["diag_var"] = false
     inputs["class_alg"] = "ols"
     inputs["H1"] = 1
+    inputs["threshold"] = 1e-1
 
     output_path = "./warmup_garbage"
     file_inds = 1:1

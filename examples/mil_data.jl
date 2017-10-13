@@ -20,6 +20,7 @@ inputs["use_cvs"] = true # should cv_indexes be also used?
 inputs["diag_var"] = false
 inputs["class_alg"] = "lower_bound" # "ols"/"rls"/"vbls"/"min_err"/"lower_bound"
 inputs["H1"] = 3
+inputs["threshold"] = 0.05 # threshold value for min_err classification
 ########################
 # DEFINE YOUR io PATHS #
 ########################
