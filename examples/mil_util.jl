@@ -528,7 +528,6 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
         cv_res_mat[:, 2:end] = -1.0
 
         n = 1
-        nrows = 0
         for row in 1:nrows
             println("row = $(row)")
             print("fold = ")
