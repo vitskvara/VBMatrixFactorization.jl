@@ -354,13 +354,28 @@ function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg:
             label = 0
         end
     else # use the better approach
-        params0, params1 = factorize_bag(Y, res0)
+        if class_alg == "min_err"
+            params0, params1 = factorize_bag(Y, res0)
 
-        err0, err1, err10, err11 = factorization_error(Y, params0, params1)
-        if abs((err0-err1)/err0) < threshold
-            label = 0
-        else
-            label = 1
+            err0, err1, err10, err11 = factorization_error(Y, params0, params1)
+            if abs((err0-err1)/err0) < threshold
+                label = 0
+            else
+                label = 1
+            end
+        elseif class_alg == "lower_bound"
+            params0, params1 = factorize_bag(Y, res0)
+            L0 = VBMatrixFactorization.lowerBound(Y, params0)
+            L1 = VBMatrixFactorization.lowerBound(Y, params1)
+
+            if L1 < L0
+                label = 1
+            else
+                label = 0
+            end
+
+            err0 = L0
+            err1 = L1
         end
     end
 
@@ -509,8 +524,11 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
         nrows, nfolds  = size(data["cvindexes"])
         ncvs = nrows*nfolds
         cv_res_mat = Array{Any,2}(ncvs, 7) # matrix of resulting error numbers for cv_indexes
+        cv_res_mat[:, 1] = "cvs"
+        cv_res_mat[:, 2:end] = -1.0
 
         n = 1
+        nrows = 0
         for row in 1:nrows
             println("row = $(row)")
             print("fold = ")
@@ -518,7 +536,6 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             cv_indices = data["cvindexes"][row,:];
             # from the cv indices, choose one of the folds as validation and the rest as training
             for fold in 1:nfolds    
-                cv_res_mat[n,1] = "cvs" 
                 print("$fold ")  
                 # select test indices
                 test_inds = cv_indices[fold]
@@ -669,7 +686,7 @@ function warmup(mil_path::String)
     inputs["scale_y"] = true
     inputs["use_cvs"] = false
     inputs["diag_var"] = false
-    inputs["class_alg"] = "vbls"
+    inputs["class_alg"] = "ols"
     inputs["H1"] = 1
 
     output_path = "./warmup_garbage"

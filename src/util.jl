@@ -82,8 +82,13 @@ function normalEntropy(Sigma::Array{Float64,2})
     if n != m
         error("Sigma must be square!")
     end
+    d = det(Sigma)
+    # numerical issues for too small determinants
+    if d < eps(0.0) # smallest nonzero float
+        d = eps(0.0)
+    end
 
-    return m/2 + m/2*ln2pi + 1/2*log(det(Sigma))
+    return m/2 + m/2*ln2pi + 1/2*log(d)
 end
 
 """

@@ -343,9 +343,9 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
     priors = Dict()
 
     # create the log dictionary
-    log = false
+    loging = false
     if logdir !=""
-        log = true
+        loging = true
         logVar = create_log(params)
     end
 
@@ -371,7 +371,7 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
 
         updateSigma!(Y, params, diag_var = diag_var)
 
-        if log
+        if loging
             update_log!(logVar, params)
         end
 
@@ -385,8 +385,6 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
             old = copy(getfield(params, convergence_var))
         end
         i += 1
-        #println(lowerBound(Y, params))
-        #println(lowerBound2(Y, params))
     end    
 
     # finally, compute the estimate of Y
@@ -398,7 +396,7 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
     end
     
     # save inputs and outputs
-    if log
+    if loging
         println("Saving outputs and inputs under ", logdir, "/")
         save_log(logVar, Y, priors, logdir, desc = desc)
     end
@@ -457,7 +455,7 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     # H(vec(A'))
     L += normalEntropy(params.diagSigmaATVec)
     # H(B)
-    L += normalEntropy(kron(params.SigmaB,eye(params.L))) # this also causes -inf
+    L += normalEntropy(kron(params.SigmaB,eye(params.L)))
     # H(sigma)
     L += gammaEntropy(params.eta, params.zeta)
     # H(CA)
