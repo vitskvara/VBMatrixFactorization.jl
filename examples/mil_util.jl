@@ -353,7 +353,7 @@ function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg:
         else
             label = 0
         end
-    else # use the better approach
+    else # use a different approach
         if class_alg == "min_err"
             params0, params1 = factorize_bag(Y, res0)
 
@@ -366,9 +366,9 @@ function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg:
         elseif class_alg == "lower_bound"
             params0, params1 = factorize_bag(Y, res0)
             L0 = VBMatrixFactorization.lowerBound(Y, params0)
-            L1 = VBMatrixFactorization.lowerBound(Y, params1)
+            L1 = VBMatrixFactorization.lowerBoundTrimmed(Y, params1, threshold)
 
-            if L1 < L0
+            if L1 > L0
                 label = 1
             else
                 label = 0
@@ -559,8 +559,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                 end       
                 n += 1 
             end 
+            println("")
         end
-
     end
     println("")
 

@@ -16,11 +16,11 @@ inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
 inputs["H"] = 6 # inner dimension of the factorization
 inputs["dataset_name"] = ""
 inputs["scale_y"] = true # should Y be scaled to standard distribution? 
-inputs["use_cvs"] = true # should cv_indexes be also used?
+inputs["use_cvs"] = false # should cv_indexes be also used?
 inputs["diag_var"] = false
 inputs["class_alg"] = "lower_bound" # "ols"/"rls"/"vbls"/"min_err"/"lower_bound"
 inputs["H1"] = 3
-inputs["threshold"] = 0.05 # threshold value for min_err classification
+inputs["threshold"] = 0.05 # threshold value for min_err/lower_bound classification
 ########################
 # DEFINE YOUR io PATHS #
 ########################
@@ -39,6 +39,7 @@ else
     output_path = string(output_path, "_hom")
 end
 output_path = string(output_path, "_$(inputs["class_alg"])")
+output_path = string(output_path, "_$(inputs["threshold"])")
 
 # define which files to use
 files = readdir(mil_path)

@@ -6,6 +6,7 @@ Compound type for vbmf_sparse computation. Contains the following fields:\n
     L::Int - number of rows of the original matrix 
     M::Int - number of columns of the original matrix
     H::Int - internal product dimension
+    MH::Int - dimension of vec(A')
     H1::Int - number of columns of B that should belong to a contaminated class
     labels::Array{Int64, 1} - which columns of Y are labeled as non-contaminated
 
@@ -47,6 +48,7 @@ type vbmf_sparse_parameters
     L::Int
     M::Int
     H::Int
+    MH::Int
     H1::Int
     labels::Array{Int64,1}
 
@@ -106,6 +108,7 @@ function vbmf_sparse_init(Y::Array{Float64,2}, H::Int; ca::Float64 = 1.0,
 
     params.L, params.M = L, M 
     params.H = H
+    params.MH = M*H
     params.H1 = H1
     params.labels = labels
 
@@ -425,7 +428,7 @@ end
 """
     lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
 
-Compute the lower bound for logarithm of data distribution.
+Compute the lower bound for logarithm of data distribution. 
 """
 function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     L = 0.0
@@ -434,7 +437,7 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     L += - params.sigmaHat/2*(params.trYTY - 2*traceXTY(params.BHat, Y*params.AHat)  
          + traceXTY(params.AHat'*params.AHat + params.SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB))
     # E[lnp(vec(A'))]
-    L += - params.M*params.H/2*ln2pi + 1/2*sum(map(gammaELn, params.alpha*ones(size(params.beta)), params.beta))
+    L += - params.MH/2*ln2pi + 1/2*sum(map(gammaELn, params.alpha*ones(size(params.beta)), params.beta))
     L += - (1/2*params.CA'*(params.ATVecHat.^2 + params.diagSigmaATVec))[1]
     # E[lnp(B)]
     L += - params.L*params.H/2*ln2pi
@@ -444,7 +447,7 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     L += params.eta0*log(params.zeta0) - lgamma(params.eta0) 
     L += (params.eta0 - 1)*gammaELn(params.eta, params.zeta) - params.zeta0*params.sigmaHat
     # E[lnp(CA)]
-    L += params.H*params.M*(params.alpha0*log(params.beta0) - lgamma(params.alpha0))
+    L += params.MH*(params.alpha0*log(params.beta0) - lgamma(params.alpha0))
     L += (params.alpha0 - 1)*sum(map(gammaELn, params.alpha*ones(size(params.beta)), params.beta))
     L += - params.beta0*sum(params.CA)
     # E[lnp(CB)]
@@ -463,4 +466,22 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_sparse_parameters)
     # H(CB)
     L += sum(map(gammaEntropy, params.gamma*ones(size(params.delta)), params.delta))
     return L
+end
+
+"""
+    lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_sparse_parameters, trim = 1e-1)
+
+AHat with abs(AHat[i,j]) < trim and the corresponding elements of CA are not involved in the computation.
+"""
+function lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_sparse_parameters, trim = 1e-1)
+    params = copy(params_in)
+
+    trim_inds = (abs(params.ATVecHat) .> trim)
+    params.ATVecHat = params.ATVecHat[trim_inds]
+    params.MH = size(params.ATVecHat)[1]
+    params.beta = params.beta[trim_inds]
+    params.CA = params.CA[trim_inds]
+    params.diagSigmaATVec = params.diagSigmaATVec[trim_inds]
+
+    return lowerBound(Y, params)
 end
