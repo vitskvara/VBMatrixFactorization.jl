@@ -114,11 +114,11 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
         # this is to decide whether to compute full covariance of A or just the diagonal
-        #if (H*M0 > 200) || (H*M1 > 200)
-        #    full_cov = false
-        #else
-        #    full_cov = true
-        #end
+        if (H*M0 > 200) || (H*M1 > 200)
+            full_cov = false
+        else
+            full_cov = true
+        end
         full_cov = false
 
         # do more random restarts if bad convergence
@@ -291,7 +291,7 @@ function factorize_bag(Y::Array{Float64,2}, params; niter = 20)
     params0.CB = params.CB[1:(H-H1)]
     params0.gamma = params.gamma
     params0.delta = params.delta[1:(H-H1)]
-    if params0.M*(H-H1) < 500
+    if params0.M*(H-H1) < 400
         full_cov = true
     else
         full_cov = false
