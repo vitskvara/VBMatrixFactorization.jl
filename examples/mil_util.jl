@@ -186,6 +186,10 @@ function vbls!(Y::Array{Float64, 2}, params, niter::Int;
             VBMatrixFactorization.updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
             VBMatrixFactorization.updateCA!(params)
             VBMatrixFactorization.updateSigma!(Y, params, diag_var = diag_var)
+        elseif typeof(params) == VBMatrixFactorization.vbmf_dual_parameters
+            VBMatrixFactorization.updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
+            VBMatrixFactorization.updateCA!(params)
+            VBMatrixFactorization.updateSigma!(Y, params, diag_var = diag_var)
         end
     end
     # finally, compute the estimate of Y
@@ -197,7 +201,8 @@ end
     copy_vbmf_params(Y::Array{Float64, 2}, old_params)
 
 Creates a new instance of vbmf_parameters/vbmf_sparse_parameters from an old one 
-to be used by vbls classification.
+to be used by vbls classification. This cannot be done by simple copy()
+since the dimension of the problem M is not the same for classification.
 """
 function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
     if typeof(old_params) == VBMatrixFactorization.vbmf_parameters
@@ -221,6 +226,21 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params.CB = old_params.CB
         params.gamma = old_params.gamma
         params.delta = old_params.delta
+    elseif typeof(old_params == VBMatrixFactorization.vbmf_dual_parameters)
+        params = VBMatrixFactorization.vbmf_dual_init(Y, old_params.H, old_params.H0, alpha0 = old_params.alpha0, 
+                beta0 = old_params.beta0, gamma0 = old_params.gamma0, delta0 = old_params.delta0,
+                eta0 = old_params.eta0, zeta0 = old_params.zeta0)
+        # copy the parameters that wont change
+        params.BHat = old_params.BHat
+        params.SigmaB = old_params.SigmaB
+        params.CB = old_params.CB
+        params.gamma = old_params.gamma
+        params.delta = old_params.delta
+        # also the priors
+        params.alpha00 = old_params.alpha00
+        params.beta00 = old_params.beta00
+        params.alpha01 = old_params.alpha01
+        params.beta01 = old_params.beta01
     end
 
     return params
@@ -271,11 +291,16 @@ function factorize_bag(Y::Array{Float64,2}, params; niter = 20)
     params0.CB = params.CB[1:(H-H1)]
     params0.gamma = params.gamma
     params0.delta = params.delta[1:(H-H1)]
-    A0 = vbls!(Y, params0, niter)
+    if params0.M*(H-H1) < 500
+        full_cov = true
+    else
+        full_cov = false
+    end
+    A0 = vbls!(Y, params0, niter, full_cov = full_cov)
     
     # now do the same with full B matrix for the decomposition Y = B0*A10' + B1*A11'
     params1 = copy_vbmf_params(Y, params)
-    A1 = vbls!(Y, params1, niter)
+    A1 = vbls!(Y, params1, niter, full_cov = true)
     
     return params0, params1
 end
