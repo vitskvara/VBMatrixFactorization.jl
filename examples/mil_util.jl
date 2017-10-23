@@ -226,10 +226,10 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params.CB = old_params.CB
         params.gamma = old_params.gamma
         params.delta = old_params.delta
-    elseif typeof(old_params == VBMatrixFactorization.vbmf_dual_parameters)
-        params = VBMatrixFactorization.vbmf_dual_init(Y, old_params.H, old_params.H0, alpha0 = old_params.alpha0, 
-                beta0 = old_params.beta0, gamma0 = old_params.gamma0, delta0 = old_params.delta0,
-                eta0 = old_params.eta0, zeta0 = old_params.zeta0)
+    elseif typeof(old_params) == VBMatrixFactorization.vbmf_dual_parameters
+        params = VBMatrixFactorization.vbmf_dual_init(Y, old_params.H, old_params.H0, 
+            gamma0 = old_params.gamma0, delta0 = old_params.delta0,
+            eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
         params.BHat = old_params.BHat
         params.SigmaB = old_params.SigmaB

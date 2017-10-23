@@ -17,5 +17,6 @@ include("data_manip.jl")
 include("vbmf.jl")
 include("vbmf_sparse.jl")
 include("vbmf_dual.jl")
+include("vbmf_trial.jl")
 
 end # module

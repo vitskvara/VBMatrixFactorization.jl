@@ -1,12 +1,14 @@
 using Roots # for fzero fction
 
 """
-   vbmf_dual_parameters
+   vbmf_trial_parameters
 
-Compound type for vbmf_dual computation. Contains the following fields:\n 
+Compound type for vbmf_trial computation. Contains the following fields:\n 
     
     L::Int - number of rows of the original matrix 
     M::Int - number of columns of the original matrix
+    M0::Int - columns belonging to negative bags
+    M1::Int - columns belonging to positive bags
     MH::Int - columns*internal factorization dimension
     H::Int - internal product dimension, H = H0 + H1
     H0::Int - size of base of noncontaminated class
@@ -18,8 +20,9 @@ Compound type for vbmf_dual computation. Contains the following fields:\n
     diagSigmaATVec::Array{Float64,1} - diagonal of covariance of vec(A^T), size (MH)
     invSigmaATVec::Array{Float64, 2} - inverse of covariance of vec(A^T), size (MH, MH)
     SigmaA::Array{Float64,2} - covariance of A matrix, size (H, H)
-    A0Hat::Array{Float64, 2} - mean value of A0, size (M, H0)
-    A1Hat::Array{Float64, 2} - mean value of A1, size (M, H1)
+    A1Hat::Array{Float64, 2} - mean value of A1, size (M, H0)
+    A2Hat::Array{Float64, 2} - mean value of A2, size (M0, H1)
+    A3Hat::Array{Float64, 2} - mean value of A3, size (M1, H1)
 
     BHat::Array{Float64, 2} - mean value of B, size (L, H)
     SigmaB::Array{Float64, 2} - covariance of B matrix, size (H, H)
@@ -27,16 +30,22 @@ Compound type for vbmf_dual computation. Contains the following fields:\n
     CA::Array{Float64, 1} - diagonal of the prior covariance of vec(A^T), size (MH)
     alpha::Array{Float64, 1} - shapes of CA gamma posterior, size (2,1)
     beta::Array{Float64,1} - scale of CA gamma posterior, size (MH, 1)
-    CA0::Array{Float64, 1} - prior covariance of A0, size (MH0)
-    alpha00::Float64 - shape of CA0 gamma prior
-    beta00::Float64 - scale of CA0 gamma prior
-    alpha0::Float64 - shape of CA0 gamma posterior
-    beta0::::Array{Float64,1} - scale of CA0 gamma posterior, size (MH0, 1)    
-    CA1::Array{Float64, 1} - prior covariance of A1, size (MH1)
+    
+    CA1::Array{Float64, 1} - prior covariance of A1, size (MH0)
     alpha01::Float64 - shape of CA1 gamma prior
     beta01::Float64 - scale of CA1 gamma prior
     alpha1::Float64 - shape of CA1 gamma posterior
-    beta1::::Array{Float64,1} - scale of CA1 gamma posterior, size (MH1, 1)
+    beta1::::Array{Float64,1} - scale of CA1 gamma posterior, size (MH0, 1)    
+    CA2::Array{Float64, 1} - prior covariance of A2, size (M0H1)
+    alpha02::Float64 - shape of CA2 gamma prior
+    beta02::Float64 - scale of CA2 gamma prior
+    alpha2::Float64 - shape of CA2 gamma posterior
+    beta2::::Array{Float64,1} - scale of CA2 gamma posterior, size (M0H1, 1)
+    CA3::Array{Float64, 1} - prior covariance of A3, size (M1H1)
+    alpha03::Float64 - shape of CA3 gamma prior
+    beta03::Float64 - scale of CA3 gamma prior
+    alpha3::Float64 - shape of CA3 gamma posterior
+    beta3::::Array{Float64,1} - scale of CA3 gamma posterior, size (M1H1, 1)
 
     CB::Array{Float64, 1} - diagonal of prior covariance of B, size (H)
     gamma0::Float64 - shape of CB gamma prior
@@ -56,9 +65,11 @@ Compound type for vbmf_dual computation. Contains the following fields:\n
     YHat::Array{Float64, 2} - estimate of Y, size (L, M)
     trYTY::Float64 - trace(Y^T*Y), saved so that it does not have to be recomputed
 """
-type vbmf_dual_parameters
+type vbmf_trial_parameters
     L::Int
     M::Int
+    M0::Int
+    M1::Int
     MH::Int
     H::Int
     H0::Int
@@ -70,8 +81,9 @@ type vbmf_dual_parameters
     diagSigmaATVec::Array{Float64,1}
     invSigmaATVec::Array{Float64, 2}
     SigmaA::Array{Float64,2}
-    A0Hat::Array{Float64, 2}
     A1Hat::Array{Float64, 2}
+    A2Hat::Array{Float64, 2}
+    A3Hat::Array{Float64, 2}
     
     BHat::Array{Float64, 2}
     SigmaB::Array{Float64, 2}
@@ -79,17 +91,22 @@ type vbmf_dual_parameters
     CA::Array{Float64, 1}
     alpha::Array{Float64, 1}
     beta::Array{Float64,1}
-    CA0::Array{Float64, 1}
-    alpha00::Float64
-    beta00::Float64
-    alpha0::Float64
-    beta0::Array{Float64,1}
     CA1::Array{Float64, 1}
     alpha01::Float64
     beta01::Float64
     alpha1::Float64
     beta1::Array{Float64,1}
-
+    CA2::Array{Float64, 1}
+    alpha02::Float64
+    beta02::Float64
+    alpha2::Float64
+    beta2::Array{Float64,1}
+    CA3::Array{Float64, 1}
+    alpha03::Float64
+    beta03::Float64
+    alpha3::Float64
+    beta3::Array{Float64,1}
+    
     CB::Array{Float64, 1}
     gamma0::Float64
     delta0::Float64
@@ -108,18 +125,18 @@ type vbmf_dual_parameters
     YHat::Array{Float64, 2}
     trYTY::Float64
     
-    vbmf_dual_parameters() = new()
+    vbmf_trial_parameters() = new()
 end
 
 """
-    vbmf_dual_init(Y::Array{Float64,2}, H::Int, H0::Int; ca::Float64 = 1.0, 
+    vbmf_trial_init(Y::Array{Float64,2}, H::Int, H0::Int, M0::Int; ca::Float64 = 1.0, 
     alpha0::Float64 = 1e-10, beta0::Float64 = 1e-10, cb::Float64 = 1.0, 
     gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
     sigma::Float64 = 1.0, eta0::Float64 = 1e-10, zeta0::Float64 = 1e-10)
 
-Returns an initialized structure of type vbmf_dual_parameters.
+Returns an initialized structure of type vbmf_trial_parameters.
 """
-function vbmf_dual_init(Y::Array{Float64,2}, H::Int, H0::Int; ca::Float64 = 1.0, 
+function vbmf_trial_init(Y::Array{Float64,2}, H::Int, H0::Int, M0::Int; ca::Float64 = 1.0, 
     alpha0::Float64 = 1e-10, beta0::Float64 = 1e-10, cb::Float64 = 1.0, 
     gamma0::Float64 = 1e-10, delta0::Float64 = 1e-10,
     sigma::Float64 = 1.0, eta0::Float64 = 1e-10, zeta0::Float64 = 1e-10)
@@ -127,11 +144,14 @@ function vbmf_dual_init(Y::Array{Float64,2}, H::Int, H0::Int; ca::Float64 = 1.0,
         error("H must be at least H0!")
     end
 
-    params = vbmf_dual_parameters()
+    params = vbmf_trial_parameters()
     L, M = size(Y)
 
     params.L, params.M = L, M 
     params.H = H
+    params.M0 = M0
+    M1 = M - M0
+    params.M1 = M1
     params.MH = M*H
     params.H0 = H0
     H1 = H - H0 
@@ -143,32 +163,46 @@ function vbmf_dual_init(Y::Array{Float64,2}, H::Int, H0::Int; ca::Float64 = 1.0,
     params.diagSigmaATVec = ones(M*H)
     params.invSigmaATVec = eye(M*H, M*H)
     params.SigmaA = zeros(H, H)
-    params.A0Hat = params.AHat[:,1:params.H0]
-    params.A1Hat = params.AHat[:,(params.H0+1):end]
+    params.A1Hat = params.AHat[:,1:H0]
+    params.A2Hat = params.AHat[1:M0,(params.H0+1):end]
+    params.A3Hat = params.AHat[(M0+1):end,(params.H0+1):end]
 
     params.BHat = randn(L, H)
     params.SigmaB = zeros(H, H)
 
-    params.CA0 = ca*ones(M*H0)
-    params.CA1 = ca*ones(M*H1)
+    params.CA1 = ca*ones(M*H0)
+    params.CA2 = ca*ones(M0*H1)
+    params.CA3 = ca*ones(M1*H1)
     params.CA = Array{Float64, 1}() 
-    for m in 1:params.M
-        params.CA = cat(1, params.CA, params.CA0[((m-1)*params.H0+1):m*params.H0])
-        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H1+1):m*params.H1])
-    end    
-    params.alpha00 = alpha0
+    for m in 1:params.M0
+        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H0+1):m*params.H0])
+        params.CA = cat(1, params.CA, params.CA2[((m-1)*params.H1+1):m*params.H1])
+    end
+    for m in (params.M0+1):params.M
+        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H0+1):m*params.H0])
+        params.CA = cat(1, params.CA, params.CA3[((m-1-params.M0)*params.H1+1):(m-params.M0)*params.H1])
+    end
     params.alpha01 = alpha0
-    params.beta00 = beta0
+    params.alpha02 = alpha0
+    params.alpha03 = alpha0
     params.beta01 = beta0
-    params.alpha0 = alpha0 + 0.5
-    params.beta0 = beta0*ones(M*H0)
+    params.beta02 = beta0
+    params.beta03 = beta0
     params.alpha1 = alpha0 + 0.5
-    params.beta1 = beta0*ones(M*H1)
-    params.alpha = [params.alpha0, params.alpha1]
+    params.alpha2 = alpha0 + 0.5
+    params.alpha3 = alpha0 + 0.5
+    params.beta1 = beta0*ones(M*H0)
+    params.beta2 = beta0*ones(M0*H1)
+    params.beta3 = beta0*ones(M1*H1)
+    params.alpha = [params.alpha1, params.alpha2, params.alpha3]
     params.beta = Array{Float64, 1}()
-    for m in 1:params.M
-        params.beta = cat(1, params.beta, params.beta0[((m-1)*params.H0+1):m*params.H0])
-        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H1+1):m*params.H1])
+    for m in 1:params.M0
+        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H0+1):m*params.H0])
+        params.beta = cat(1, params.beta, params.beta2[((m-1)*params.H1+1):m*params.H1])
+    end
+    for m in (params.M0+1):params.M
+        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H0+1):m*params.H0])
+        params.beta = cat(1, params.beta, params.beta3[((m-1-params.M0)*params.H1+1):(m-params.M0)*params.H1])
     end    
 
     params.CB = cb*ones(H)  
@@ -193,12 +227,12 @@ function vbmf_dual_init(Y::Array{Float64,2}, H::Int, H0::Int; ca::Float64 = 1.0,
 end
 
 """
-   copy(params_in::vbmf_dual_parameters)
+   copy(params_in::vbmf_trial_parameters)
 
-Copy function for vbmfa_dual_parameters. 
+Copy function for vbmfa_trial_parameters. 
 """
-function copy(params_in::vbmf_dual_parameters)
-    params = vbmf_dual_parameters()
+function copy(params_in::vbmf_trial_parameters)
+    params = vbmf_trial_parameters()
     
     for field in fieldnames(params_in)
         setfield!(params, field, copy(getfield(params_in, field)))
@@ -208,12 +242,12 @@ function copy(params_in::vbmf_dual_parameters)
 end
 
 """
-    updateA!(Y::Array{Float64,2}, params::vbmf_dual_parameters; full_cov::Bool, diag_var::Bool = false)
+    updateA!(Y::Array{Float64,2}, params::vbmf_trial_parameters; full_cov::Bool, diag_var::Bool = false)
 
 Updates mean and covariance of vec(A^T) and also of the A matrix. If full_cov is true, 
 then inverse of full covariance matrix is computed, otherwise just the diagonal is estimated.
 """
-function updateA!(Y::Array{Float64,2}, params::vbmf_dual_parameters; full_cov::Bool = false, diag_var::Bool = false)
+function updateA!(Y::Array{Float64,2}, params::vbmf_trial_parameters; full_cov::Bool = false, diag_var::Bool = false)
     # either just the diagonal or the full covariance
     if full_cov
         # compute the inverse of covariance
@@ -280,16 +314,17 @@ function updateA!(Y::Array{Float64,2}, params::vbmf_dual_parameters; full_cov::B
     end
 
     params.AHat = reshape(params.ATVecHat, params.H, params.M)'
-    params.A0Hat = params.AHat[:,1:params.H0]
-    params.A1Hat = params.AHat[:,(params.H0+1):end]
+    params.A1Hat = params.AHat[:,1:params.H0]
+    params.A2Hat = params.AHat[1:params.M0,(params.H0+1):end]
+    params.A3Hat = params.AHat[(params.M0+1):end,(params.H0+1):end]
 end
 
 """
-    updateB!(Y::Array{Float64,2}, params::vbmf_dual_parameters, diag_var::Bool = false)
+    updateB!(Y::Array{Float64,2}, params::vbmf_trial_parameters, diag_var::Bool = false)
 
 Updates mean and covariance of the B matrix.
 """
-function updateB!(Y::Array{Float64,2}, params::vbmf_dual_parameters;  diag_var::Bool = false)
+function updateB!(Y::Array{Float64,2}, params::vbmf_trial_parameters;  diag_var::Bool = false)
     # first, compute the inverse of the covariance
     if diag_var
         params.SigmaB = diagm(params.CB) + mean(params.sigmaVecHat)*(params.AHat'*params.AHat + params.SigmaA)
@@ -306,56 +341,70 @@ function updateB!(Y::Array{Float64,2}, params::vbmf_dual_parameters;  diag_var::
 end
 
 """
-    updateYHat!(params::vbmf_dual_parameters)
+    updateYHat!(params::vbmf_trial_parameters)
 
 Updates estimate of Y.
 """
-function updateYHat!(params::vbmf_dual_parameters)
+function updateYHat!(params::vbmf_trial_parameters)
     params.YHat = params.BHat*params.AHat'
 end
 
 """
-    updateCA!(params::vbmf_dual_parameters)
+    updateCA!(params::vbmf_trial_parameters)
 
 Updates the estimate of CA.
 """
-function updateCA!(params::vbmf_dual_parameters)
+function updateCA!(params::vbmf_trial_parameters)
     # compute the updates
-    params.alpha0 = params.alpha00 + 1/2
     params.alpha1 = params.alpha01 + 1/2
+    params.alpha2 = params.alpha02 + 1/2
+    params.alpha3 = params.alpha03 + 1/2
 
     diagSigmaA = reshape(params.diagSigmaATVec, params.H, params.M)
-    diagSigmaA0Vec = diagSigmaA[1:params.H0,:]
-    diagSigmaA1Vec = diagSigmaA[(params.H0+1):end,:]
+    diagSigmaA1Vec = diagSigmaA[1:params.H0,:]
+    diagSigmaA2Vec = diagSigmaA[(params.H0+1):end,1:params.M0]
+    diagSigmaA3Vec = diagSigmaA[(params.H0+1):end,(params.M0+1):end]
 
-    params.beta0 = params.beta00*ones(params.M*params.H0) 
-    params.beta0 += 1/2*vec(params.A0Hat'.*params.A0Hat' + diagSigmaA0Vec)
-    params.beta1 = params.beta01*ones(params.M*params.H1)
+    params.beta1 = params.beta01*ones(params.M*params.H0) 
     params.beta1 += 1/2*vec(params.A1Hat'.*params.A1Hat' + diagSigmaA1Vec)
+    params.beta2 = params.beta02*ones(params.M0*params.H1)
+    params.beta2 += 1/2*vec(params.A2Hat'.*params.A2Hat')
+    params.beta2 += 1/2*vec(diagSigmaA2Vec)
+    params.beta3 = params.beta03*ones(params.M1*params.H1)
+    params.beta3 += 1/2*vec(params.A3Hat'.*params.A3Hat' + diagSigmaA3Vec)
 
-    params.CA0 = params.alpha0*ones(params.M*params.H0)./params.beta0
-    params.CA1 = params.alpha1*ones(params.M*params.H1)./params.beta1
+    params.CA1 = params.alpha1*ones(params.M*params.H0)./params.beta1
+    params.CA2 = params.alpha2*ones(params.M0*params.H1)./params.beta2
+    params.CA3 = params.alpha3*ones(params.M1*params.H1)./params.beta3
 
     # now just recombine the results back to the original arrays
     params.CA = Array{Float64, 1}() 
-    for m in 1:params.M
-        params.CA = cat(1, params.CA, params.CA0[((m-1)*params.H0+1):m*params.H0])
-        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H1+1):m*params.H1])
-    end    
-    params.alpha = [params.alpha0, params.alpha1]
+    for m in 1:params.M0
+        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H0+1):m*params.H0])
+        params.CA = cat(1, params.CA, params.CA2[((m-1)*params.H1+1):m*params.H1])
+    end
+    for m in (params.M0+1):params.M
+        params.CA = cat(1, params.CA, params.CA1[((m-1)*params.H0+1):m*params.H0])
+        params.CA = cat(1, params.CA, params.CA3[((m-1-params.M0)*params.H1+1):(m-params.M0)*params.H1])
+    end 
+    params.alpha = [params.alpha1, params.alpha2, params.alpha3]
     params.beta = Array{Float64, 1}()
-    for m in 1:params.M
-        params.beta = cat(1, params.beta, params.beta0[((m-1)*params.H0+1):m*params.H0])
-        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H1+1):m*params.H1])
-    end   
+    for m in 1:params.M0
+        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H0+1):m*params.H0])
+        params.beta = cat(1, params.beta, params.beta2[((m-1)*params.H1+1):m*params.H1])
+    end
+    for m in (params.M0+1):params.M
+        params.beta = cat(1, params.beta, params.beta1[((m-1)*params.H0+1):m*params.H0])
+        params.beta = cat(1, params.beta, params.beta3[((m-1-params.M0)*params.H1+1):(m-params.M0)*params.H1])
+    end     
 end
 
 """
-    updateCB!(params::vbmf_dual_parameters)
+    updateCB!(params::vbmf_trial_parameters)
 
 Updates the estimate of CB.
 """
-function updateCB!(params::vbmf_dual_parameters)
+function updateCB!(params::vbmf_trial_parameters)
     for h in 1:params.H
         params.delta[h] = params.delta0 + 1/2*(params.BHat[:,h]'*params.BHat[:,h])[1] + 1/2*params.SigmaB[h,h]
         params.CB[h] = params.gamma/params.delta[h]
@@ -363,11 +412,11 @@ function updateCB!(params::vbmf_dual_parameters)
 end
 
 """
-    updateSigma!(Y::Array{Float64,2}, params::vbmf_dual_parameters, diag_var::Bool = false)
+    updateSigma!(Y::Array{Float64,2}, params::vbmf_trial_parameters, diag_var::Bool = false)
 
 Updates estimate of the measurement variance.
 """
-function updateSigma!(Y::Array{Float64,2}, params::vbmf_dual_parameters; diag_var::Bool = false)
+function updateSigma!(Y::Array{Float64,2}, params::vbmf_trial_parameters; diag_var::Bool = false)
     if diag_var
         for l in 1:params.L
             params.zetaVec[l] = params.zeta0 + 1/2*norm2(Y[l,:]) - sum(Y[l,:].*(params.AHat*params.BHat[l,:])) +
@@ -386,37 +435,13 @@ function updateSigma!(Y::Array{Float64,2}, params::vbmf_dual_parameters; diag_va
 end
 
 """
-    updateAlpha00!(params::vbmf_dual_parameters)
-
-Estimate alpha00 by maximizing the lower bound.
-"""
-function updateAlpha00!(params::vbmf_dual_parameters)
-    function fAlpha00(x)
-        return params.M*params.H0*log(params.beta00) - params.M*params.H0*digamma(x) + sum(map(gammaELn, params.alpha0*ones(size(params.beta0)), params.beta0))
-    end
-    try
-        root = fzero(fAlpha00, 1e-10, 1e10, ftol = 1e-5)
-        params.alpha00 = root
-    end
-end
-
-"""
-    updateBeta00!(params::vbmf_dual_parameters)
-
-Estimate beta00 by maximizing the lower bound.
-"""
-function updateBeta00!(params::vbmf_dual_parameters)
-    params.beta00 = params.M*params.H0*params.alpha00/sum(params.CA0)
-end
-
-"""
-    updateAlpha01!(params::vbmf_dual_parameters)
+    updateAlpha01!(params::vbmf_trial_parameters)
 
 Estimate alpha01 by maximizing the lower bound.
 """
-function updateAlpha01!(params::vbmf_dual_parameters)
+function updateAlpha01!(params::vbmf_trial_parameters)
     function fAlpha01(x)
-        return params.M*params.H1*log(params.beta01) - params.M*params.H1*digamma(x) + sum(map(gammaELn, params.alpha1*ones(size(params.beta1)), params.beta1))
+        return params.M*params.H0*log(params.beta01) - params.M*params.H0*digamma(x) + sum(map(gammaELn, params.alpha1*ones(size(params.beta1)), params.beta1))
     end
     try
         root = fzero(fAlpha01, 1e-10, 1e10, ftol = 1e-5)
@@ -425,16 +450,64 @@ function updateAlpha01!(params::vbmf_dual_parameters)
 end
 
 """
-    updateBeta01!(params::vbmf_dual_parameters)
+    updateBeta01!(params::vbmf_trial_parameters)
 
 Estimate beta01 by maximizing the lower bound.
 """
-function updateBeta01!(params::vbmf_dual_parameters)
-    params.beta01 = params.M*params.H1*params.alpha01/sum(params.CA1)
+function updateBeta01!(params::vbmf_trial_parameters)
+    params.beta01 = params.M*params.H0*params.alpha01/sum(params.CA1)
 end
 
 """
-    vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::Int, eps::Float64 = 1e-6, 
+    updateAlpha02!(params::vbmf_trial_parameters)
+
+Estimate alpha02 by maximizing the lower bound.
+"""
+function updateAlpha02!(params::vbmf_trial_parameters)
+    function fAlpha02(x)
+        return params.M0*params.H1*log(params.beta02) - params.M0*params.H1*digamma(x) + sum(map(gammaELn, params.alpha2*ones(size(params.beta2)), params.beta2))
+    end
+    try
+        root = fzero(fAlpha02, 1e-10, 1e10, ftol = 1e-5)
+        params.alpha02 = root
+    end
+end
+
+"""
+    updateBeta02!(params::vbmf_trial_parameters)
+
+Estimate beta02 by maximizing the lower bound.
+"""
+function updateBeta02!(params::vbmf_trial_parameters)
+    params.beta02 = params.M0*params.H1*params.alpha02/sum(params.CA2)
+end
+
+"""
+    updateAlpha03!(params::vbmf_trial_parameters)
+
+Estimate alpha03 by maximizing the lower bound.
+"""
+function updateAlpha03!(params::vbmf_trial_parameters)
+    function fAlpha03(x)
+        return params.M1*params.H1*log(params.beta03) - params.M1*params.H1*digamma(x) + sum(map(gammaELn, params.alpha3*ones(size(params.beta3)), params.beta3))
+    end
+    try
+        root = fzero(fAlpha03, 1e-10, 1e10, ftol = 1e-5)
+        params.alpha03 = root
+    end
+end
+
+"""
+    updateBeta03!(params::vbmf_trial_parameters)
+
+Estimate beta03 by maximizing the lower bound.
+"""
+function updateBeta03!(params::vbmf_trial_parameters)
+    params.beta03 = params.M1*params.H1*params.alpha03/sum(params.CA3)
+end
+
+"""
+    vbmf_trial!(Y::Array{Float64, 2}, params::vbmf_trial_parameters, niter::Int, eps::Float64 = 1e-6, 
     est_var = false, full_cov::Bool = false, logdir = "", desc = "")
 
 Computes variational bayes matrix factorization of Y = AB' + E. Independence of A and B is assumed. 
@@ -452,7 +525,7 @@ The prior model is following:
 The params argument with initialized data is modified and contains the resulting estimates after the 
 algorithm stops.
 """
-function vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::Int; eps::Float64 = 1e-6,
+function vbmf_trial!(Y::Array{Float64, 2}, params::vbmf_trial_parameters, niter::Int; eps::Float64 = 1e-6,
     diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
     priors = Dict()
 
@@ -486,10 +559,12 @@ function vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::I
         updateSigma!(Y, params, diag_var = diag_var)
 
         # estimate priors
-        updateAlpha00!(params)
         updateAlpha01!(params)
-        updateBeta00!(params)
+        updateAlpha02!(params)
+        updateAlpha03!(params)
         updateBeta01!(params)
+        updateBeta02!(params)
+        updateBeta03!(params)
 
         if loging
             update_log!(logVar, params)
@@ -525,29 +600,29 @@ function vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::I
 end
 
 """
-    vbmf_dual(Y::Array{Float64, 2}, params_in::vbmf_dual_parameters, niter::Int, eps::Float64 = 1e-6, 
+    vbmf_trial(Y::Array{Float64, 2}, params_in::vbmf_trial_parameters, niter::Int, eps::Float64 = 1e-6, 
     est_var = false, full_cov::Bool = false, logdir = "", desc = "")
 
-Calls vbmf_dual!() but copies the params_in argument so that it is not modified and can be reused.
+Calls vbmf_trial!() but copies the params_in argument so that it is not modified and can be reused.
 """
-function vbmf_dual(Y::Array{Float64, 2}, params_in::vbmf_dual_parameters, niter::Int; eps::Float64 = 1e-6,
+function vbmf_trial(Y::Array{Float64, 2}, params_in::vbmf_trial_parameters, niter::Int; eps::Float64 = 1e-6,
     diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
     # make a copy of input params
     params = copy(params_in)
 
     # run the algorithm
-    d = vbmf_dual!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
+    d = vbmf_trial!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
         logdir = logdir, desc = desc, verb = verb)
 
     return params, d
 end
 
 """
-    lowerBound(Y::Array{Float64,2}, params::vbmf_dual_parameters)
+    lowerBound(Y::Array{Float64,2}, params::vbmf_trial_parameters)
 
 Compute the lower bound for logarithm of data distribution. 
 """
-function lowerBound(Y::Array{Float64,2}, params::vbmf_dual_parameters)
+function lowerBound(Y::Array{Float64,2}, params::vbmf_trial_parameters)
     L = 0.0
     # E[lnp(Y|params)]
     L += - params.L*params.M/2*ln2pi + params.L*params.M/2*gammaELn(params.eta, params.zeta) 
@@ -564,14 +639,18 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_dual_parameters)
     # E[lnp(sigma)]
     L += params.eta0*log(params.zeta0) - lgamma(params.eta0) 
     L += (params.eta0 - 1)*gammaELn(params.eta, params.zeta) - params.zeta0*params.sigmaHat
-    # E[lnp(CA0)]
-    L += params.M*params.H0*(params.alpha00*log(params.beta00) - lgamma(params.alpha00))
-    L += (params.alpha00 - 1)*sum(map(gammaELn, params.alpha0*ones(size(params.beta0)), params.beta0))
-    L += - params.beta00*sum(params.CA0)
     # E[lnp(CA1)]
-    L += params.M*params.H1*(params.alpha01*log(params.beta01) - lgamma(params.alpha01))
+    L += params.M*params.H0*(params.alpha01*log(params.beta01) - lgamma(params.alpha01))
     L += (params.alpha01 - 1)*sum(map(gammaELn, params.alpha1*ones(size(params.beta1)), params.beta1))
     L += - params.beta01*sum(params.CA1)
+    # E[lnp(CA2)]
+    L += params.M0*params.H1*(params.alpha02*log(params.beta02) - lgamma(params.alpha02))
+    L += (params.alpha02 - 1)*sum(map(gammaELn, params.alpha2*ones(size(params.beta2)), params.beta2))
+    L += - params.beta02*sum(params.CA2)
+    # E[lnp(CA3)]
+    L += params.M1*params.H1*(params.alpha03*log(params.beta03) - lgamma(params.alpha03))
+    L += (params.alpha03 - 1)*sum(map(gammaELn, params.alpha3*ones(size(params.beta3)), params.beta3))
+    L += - params.beta03*sum(params.CA3)
     # E[lnp(CB)]
     L += params.H*(params.gamma0*log(params.delta0) - lgamma(params.gamma0))
     L += (params.gamma0 - 1)*sum(map(gammaELn, params.gamma*ones(size(params.delta)), params.delta))
@@ -583,21 +662,23 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_dual_parameters)
     L += normalEntropy(kron(params.SigmaB,eye(params.L)))
     # H(sigma)
     L += gammaEntropy(params.eta, params.zeta)
-    # H(CA0)
-    L += sum(map(gammaEntropy, params.alpha0*ones(size(params.beta0)), params.beta0))
     # H(CA1)
     L += sum(map(gammaEntropy, params.alpha1*ones(size(params.beta1)), params.beta1))
+    # H(CA2)
+    L += sum(map(gammaEntropy, params.alpha2*ones(size(params.beta2)), params.beta2))
+    # H(CA3)
+    L += sum(map(gammaEntropy, params.alpha3*ones(size(params.beta3)), params.beta3))
     # H(CB)
     L += sum(map(gammaEntropy, params.gamma*ones(size(params.delta)), params.delta))
     return L
 end
 
 """
-    lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_dual_parameters, trim = 1e-1)
+    lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_trial_parameters, trim = 1e-1)
 
 AHat with abs(AHat[i,j]) < trim and the corresponding elements of CA are not involved in the computation.
 """
-function lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_dual_parameters, trim = 1e-1)
+function lowerBoundTrimmed(Y::Array{Float64,2}, params_in::vbmf_trial_parameters, trim = 1e-1)
     params = copy(params_in)
 
     trim_inds = (abs(params.ATVecHat) .> trim)
