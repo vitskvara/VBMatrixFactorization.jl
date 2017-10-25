@@ -575,7 +575,7 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
     elseif class_alg = "dual"
-        res0, res1 = train_dual(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var);
+        res0, res1 = train_dual(data, train_inds, H, H-H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
         res1 = 0 # this does not actually make a lot of sense
@@ -602,7 +602,7 @@ function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter:
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
     elseif class_alg = "dual"
-        res0, res1 = train_dual(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var);
+        res0, res1 = train_dual(data, train_inds, H, H-H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
         res1 = 0 # this does not actually make a lot of sense
