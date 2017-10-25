@@ -483,7 +483,7 @@ function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg:
 
             err0 = L0
             err1 = L1
-        elseif class_alg = "dual"            
+        elseif class_alg == "dual"            
             niter = 20
             L, M = size(Y)
             params0 = copy_vbmf_params(Y, res0);
@@ -574,7 +574,7 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     # training
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
-    elseif class_alg = "dual"
+    elseif class_alg == "dual"
         res0, res1 = train_dual(data, train_inds, H, H-H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
@@ -601,7 +601,7 @@ function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter:
     # training
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
-    elseif class_alg = "dual"
+    elseif class_alg == "dual"
         res0, res1 = train_dual(data, train_inds, H, H-H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
