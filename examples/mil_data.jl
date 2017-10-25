@@ -24,14 +24,14 @@ inputs["threshold"] = 0.05 # threshold value for min_err/lower_bound classificat
 ########################
 # DEFINE YOUR io PATHS #
 ########################
-mil_path = "/home/vit/Dropbox/vyzkum/cisco/data/milproblems" # where the MIL .jld files are
-output_path = string("/home/vit/Dropbox/vyzkum/cisco/data/vbmf_classification/$(inputs["solver"])",
-    "_$(inputs["H"])_$(inputs["H1"])_$(inputs["nclass_iter"])") # where output is stored
+#mil_path = "/home/vit/Dropbox/vyzkum/cisco/data/milproblems" # where the MIL .jld files are
+#output_path = string("/home/vit/Dropbox/vyzkum/cisco/data/vbmf_classification/$(inputs["solver"])",
+#    "_$(inputs["H"])_$(inputs["H1"])_$(inputs["nclass_iter"])") # where output is stored
 
 ### axolotl paths ###
-#mil_path = "/home/skvara/work/cisco/data/milproblems" # where the MIL .jld files are
-#output_path = string("/home/skvara/work/cisco/data/vbmf_classification/$(inputs["solver"])",
-#    "_$(inputs["H"])_$(inputs["H1"])_$(inputs["nclass_iter"])") # where output is stored
+mil_path = "/home/skvara/work/cisco/data/milproblems" # where the MIL .jld files are
+output_path = string("/home/skvara/work/cisco/data/vbmf_classification/$(inputs["solver"])",
+    "_$(inputs["H"])_$(inputs["H1"])_$(inputs["nclass_iter"])") # where output is stored
 
 if inputs["diag_var"]
     output_path = string(output_path, "_het")

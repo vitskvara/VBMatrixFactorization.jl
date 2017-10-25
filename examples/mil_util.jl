@@ -329,7 +329,7 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
 
     max_restarts = 10
     nres = 0
-    delta = 1.0
+    delta = 1e-3
     while (nres < max_restarts) && (delta < 1e-2)    
         params0 = VBMatrixFactorization.vbmf_sparse_init(Y0_train, H, H0);
         d = VBMatrixFactorization.vbmf_dual!(Y0_train, params0, niter, eps = eps, verb = verb, diag_var = diag_var);
@@ -341,7 +341,7 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
     end
 
     nres = 0
-    delta = 1.0
+    delta = 1e-3
     while (nres < max_restarts) && (delta < 1e-2)    
         params1 = VBMatrixFactorization.vbmf_sparse_init(Y1_train, H, H0);
         d = VBMatrixFactorization.vbmf_dual!(Y1_train, params1, niter, eps = eps, verb = verb, diag_var = diag_var);
