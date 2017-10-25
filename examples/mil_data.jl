@@ -8,7 +8,7 @@ include("mil_util.jl")
 verb = true
 inputs = Dict()
 #inputs["p_vec"] =  [0.01, 0.02, 0.05, 0.1, 0.33, 0.5, 0.75, 0.9] # the vector percentages of known labels 
-inputs["p_vec"] =  [0.01] 
+inputs["p_vec"] =  [] 
 inputs["nclass_iter"] = 1 # how many times should be bags randomly assigned and classification tested over one percentage of known labels
 inputs["niter"] = 20 # iterations for vbmf solver
 inputs["eps"] = 5e-2 # the convergence limit for vbmf
@@ -16,9 +16,9 @@ inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
 inputs["H"] = 6 # inner dimension of the factorization
 inputs["dataset_name"] = ""
 inputs["scale_y"] = true # should Y be scaled to standard distribution? 
-inputs["use_cvs"] = false # should cv_indexes be also used?
+inputs["use_cvs"] = true # should cv_indexes be also used?
 inputs["diag_var"] = false
-inputs["class_alg"] = "lower_bound" # "ols"/"rls"/"vbls"/"min_err"/"lower_bound"
+inputs["class_alg"] = "lower_bound" # "ols"/"rls"/"vbls"/"min_err"/"lower_bound"/"dual"
 inputs["H1"] = 3
 inputs["threshold"] = 0.05 # threshold value for min_err/lower_bound classification
 ########################

@@ -526,7 +526,7 @@ The params argument with initialized data is modified and contains the resulting
 algorithm stops.
 """
 function vbmf_trial!(Y::Array{Float64, 2}, params::vbmf_trial_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true)
     priors = Dict()
 
     # create the log dictionary
@@ -559,13 +559,14 @@ function vbmf_trial!(Y::Array{Float64, 2}, params::vbmf_trial_parameters, niter:
         updateSigma!(Y, params, diag_var = diag_var)
 
         # estimate priors
-        updateAlpha01!(params)
-        updateAlpha02!(params)
-        updateAlpha03!(params)
-        updateBeta01!(params)
-        updateBeta02!(params)
-        updateBeta03!(params)
-
+        if est_priors
+            updateAlpha01!(params)
+            updateAlpha02!(params)
+            updateAlpha03!(params)
+            updateBeta01!(params)
+            updateBeta02!(params)
+            updateBeta03!(params)
+        end
         if loging
             update_log!(logVar, params)
         end
@@ -606,13 +607,13 @@ end
 Calls vbmf_trial!() but copies the params_in argument so that it is not modified and can be reused.
 """
 function vbmf_trial(Y::Array{Float64, 2}, params_in::vbmf_trial_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true)
     # make a copy of input params
     params = copy(params_in)
 
     # run the algorithm
     d = vbmf_trial!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
-        logdir = logdir, desc = desc, verb = verb)
+        logdir = logdir, desc = desc, verb = verb, est_priors = est_priors)
 
     return params, d
 end
@@ -629,8 +630,9 @@ function lowerBound(Y::Array{Float64,2}, params::vbmf_trial_parameters)
     L += - params.sigmaHat/2*(params.trYTY - 2*traceXTY(params.BHat, Y*params.AHat)  
          + traceXTY(params.AHat'*params.AHat + params.SigmaA, params.BHat'*params.BHat + params.L*params.SigmaB))
     # E[lnp(vec(A'))]
-    L += - params.MH/2*ln2pi + 1/2*sum(map(gammaELn, params.alpha0*ones(size(params.beta0)), params.beta0))
-    L += 1/2*sum(map(gammaELn, params.alpha0*ones(size(params.beta0)), params.beta0))
+    L += - params.MH/2*ln2pi + 1/2*sum(map(gammaELn, params.alpha1*ones(size(params.beta1)), params.beta1))
+    L += 1/2*sum(map(gammaELn, params.alpha2*ones(size(params.beta2)), params.beta2))
+    L += 1/2*sum(map(gammaELn, params.alpha3*ones(size(params.beta3)), params.beta3))
     L += - (1/2*params.CA'*(params.ATVecHat.^2 + params.diagSigmaATVec))[1]
     # E[lnp(B)]
     L += - params.L*params.H/2*ln2pi

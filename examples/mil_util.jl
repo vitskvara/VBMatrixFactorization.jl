@@ -190,6 +190,10 @@ function vbls!(Y::Array{Float64, 2}, params, niter::Int;
             VBMatrixFactorization.updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
             VBMatrixFactorization.updateCA!(params)
             VBMatrixFactorization.updateSigma!(Y, params, diag_var = diag_var)
+        elseif typeof(params) == VBMatrixFactorization.vbmf_trial_parameters
+            VBMatrixFactorization.updateA!(Y, params, full_cov = full_cov, diag_var = diag_var)
+            VBMatrixFactorization.updateCA!(params)
+            VBMatrixFactorization.updateSigma!(Y, params, diag_var = diag_var)
         end
     end
     # finally, compute the estimate of Y
@@ -215,6 +219,7 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params.SigmaB = old_params.SigmaB
         params.CB = old_params.CB
         params.invCB = old_params.invCB
+        return params
     elseif typeof(old_params) == VBMatrixFactorization.vbmf_sparse_parameters
         # init a new structure
         params = VBMatrixFactorization.vbmf_sparse_init(Y, old_params.H, alpha0 = old_params.alpha0, 
@@ -226,6 +231,7 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params.CB = old_params.CB
         params.gamma = old_params.gamma
         params.delta = old_params.delta
+        return params
     elseif typeof(old_params) == VBMatrixFactorization.vbmf_dual_parameters
         params = VBMatrixFactorization.vbmf_dual_init(Y, old_params.H, old_params.H0, 
             gamma0 = old_params.gamma0, delta0 = old_params.delta0,
@@ -241,9 +247,47 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params.beta00 = old_params.beta00
         params.alpha01 = old_params.alpha01
         params.beta01 = old_params.beta01
+        return params
+    elseif typeof(old_params) == VBMatrixFactorization.vbmf_trial_parameters
+        L, M = size(Y)
+        # here we have just one of the special basis matrices
+        params0 = VBMatrixFactorization.vbmf_trial_init(Y, old_params.H, old_params.H0, M,
+            gamma0 = old_params.gamma0, delta0 = old_params.delta0,
+            eta0 = old_params.eta0, zeta0 = old_params.zeta0)
+        # copy the parameters that wont change
+        params0.BHat = old_params.BHat
+        params0.SigmaB = old_params.SigmaB
+        params0.CB = old_params.CB
+        params0.gamma = old_params.gamma
+        params0.delta = old_params.delta
+        # also the priors
+        params0.alpha01 = old_params.alpha01
+        params0.beta01 = old_params.beta01
+        params0.alpha02 = old_params.alpha02
+        params0.beta02 = old_params.beta02
+        params0.alpha03 = 1e-10
+        params0.beta03 = 1e-10
+
+        params1 = VBMatrixFactorization.vbmf_trial_init(Y, old_params.H, old_params.H0, M,
+            gamma0 = old_params.gamma0, delta0 = old_params.delta0,
+            eta0 = old_params.eta0, zeta0 = old_params.zeta0)
+        # copy the parameters that wont change
+        params1.BHat = old_params.BHat
+        params1.SigmaB = old_params.SigmaB
+        params1.CB = old_params.CB
+        params1.gamma = old_params.gamma
+        params1.delta = old_params.delta
+        # also the priors
+        params1.alpha01 = old_params.alpha01
+        params1.beta01 = old_params.beta01
+        params1.alpha02 = old_params.alpha03
+        params1.beta02 = old_params.beta03
+        params1.alpha03 = 1e-10
+        params1.beta03 = 1e-10
+
+        return params0, params1
     end
 
-    return params
 end
 
 ### this is for the new classification
@@ -273,6 +317,44 @@ function train_local(data, train_inds, H, H1, niter; eps = 1e-4, verb = false, d
     return params
 end
 
+""" 
+    train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, diag_var = false)
+
+Trains the classifier using the dual basis decomposition.
+"""
+function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false diag_var = false)
+    Y0_train, Y1_train = get_matrices(data, train_inds)
+    L, M0 = size(Y0_train)
+    L, M1 = size(Y1_train)
+
+    max_restarts = 10
+    nres = 0
+    delta = 1.0
+    while (nres < max_restarts) && (delta < 1e-2)    
+        params0 = VBMatrixFactorization.vbmf_sparse_init(Y0_train, H, H0);
+        d = VBMatrixFactorization.vbmf_dual!(Y0_train, params0, niter, eps = eps, verb = verb, diag_var = diag_var);
+        delta = norm(params0.AHat) + norm(params0.BHat)
+        nres+=1
+    end
+    if (delta < 1e-2)
+        println("Sensible result in negative samples factorization not achieved after $(nres) retries!")
+    end
+
+    nres = 0
+    delta = 1.0
+    while (nres < max_restarts) && (delta < 1e-2)    
+        params1 = VBMatrixFactorization.vbmf_sparse_init(Y1_train, H, H0);
+        d = VBMatrixFactorization.vbmf_dual!(Y1_train, params1, niter, eps = eps, verb = verb, diag_var = diag_var);
+        delta = norm(params1.AHat) + norm(params1.BHat)
+        nres+=1
+    end
+    if (delta < 1e-2)
+        println("Sensible result in negative samples factorization not achieved after $(nres) retries!")
+    end
+
+    return params0, params1
+end
+
 """
     factorize_bag(Y::Array{Float64,2}, params)
 
@@ -300,7 +382,7 @@ function factorize_bag(Y::Array{Float64,2}, params; niter = 20)
     
     # now do the same with full B matrix for the decomposition Y = B0*A10' + B1*A11'
     params1 = copy_vbmf_params(Y, params)
-    A1 = vbls!(Y, params1, niter, full_cov = true)
+    A1 = vbls!(Y, params1, niter, full_cov = full_cov)
     
     return params0, params1
 end
@@ -401,6 +483,22 @@ function classify(res0, res1, Y::Array{Float64, 2}; threshold = 1e-1, class_alg:
 
             err0 = L0
             err1 = L1
+        elseif class_alg = "dual"            
+            niter = 20
+            L, M = size(Y)
+            params0 = copy_vbmf_params(Y, res0);
+            params1 = copy_vbmf_params(Y, res1);
+            vbls!(Y, params0, niter, full_cov = true);
+            vbls!(Y, params1, niter, full_cov = true);
+
+            err0 = norm(params0.YHat - Y)/(L*M)
+            err1 = norm(params1.YHat - Y)/(L*M)
+
+            if err0 < err1
+                label = 0
+            else
+                label = 1
+            end
         end
     end
 
@@ -476,6 +574,8 @@ function validate(p_known::Float64, data::Dict{String,Any}, niter::Int, solver::
     # training
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    elseif class_alg = "dual"
+        res0, res1 = train_dual(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
         res1 = 0 # this does not actually make a lot of sense
@@ -501,6 +601,8 @@ function validate_with_cvs(data::Dict{String,Any}, test_inds, train_inds, niter:
     # training
     if class_alg in ["ols", "rls", "vbls"]
         res0, res1 = train(data, train_inds, solver, H, niter, eps = eps, verb = verb, diag_var = diag_var);
+    elseif class_alg = "dual"
+        res0, res1 = train_dual(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var);
     else # use the better approach
         res0 = train_local(data, train_inds, H, H1, niter, eps = eps, verb = verb, diag_var = diag_var)
         res1 = 0 # this does not actually make a lot of sense
@@ -534,7 +636,7 @@ inputs["H"] = 1 # inner dimension of factorization
 inputs["scale_y"] = true # should Y be scaled to standard distribution?
 inputs["use_cvs"] = true # should cv_indexes be used instead of p_vec?
 inputs["diag_var"] = true # should homo- or heteroscedastic noise model be used?
-inputs["class_alg"] = "ols" #/"rls"/"vbls" - how should the classification be computed
+inputs["class_alg"] = "ols" #/"rls"/"vbls"/"lower bound"/"dual" - how should the classification be computed
 """
 function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
     p_vec = inputs["p_vec"]
