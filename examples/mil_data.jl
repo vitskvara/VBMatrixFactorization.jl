@@ -13,13 +13,13 @@ inputs["nclass_iter"] = 1 # how many times should be bags randomly assigned and 
 inputs["niter"] = 20 # iterations for vbmf solver
 inputs["eps"] = 5e-2 # the convergence limit for vbmf
 inputs["solver"] = "sparse" # basic/sparse for non/full ARD on A matrix in vbmf
-inputs["H"] = 12 # inner dimension of the factorization
+inputs["H"] = 8 # inner dimension of the factorization
 inputs["dataset_name"] = ""
 inputs["scale_y"] = true # should Y be scaled to standard distribution? 
 inputs["use_cvs"] = true # should cv_indexes be also used?
 inputs["diag_var"] = false
 inputs["class_alg"] = "dual" # "ols"/"rls"/"vbls"/"min_err"/"lower_bound"/"dual"
-inputs["H1"] = 8
+inputs["H1"] = 6
 inputs["threshold"] = 0.05 # threshold value for min_err/lower_bound classification
 ########################
 # DEFINE YOUR io PATHS #

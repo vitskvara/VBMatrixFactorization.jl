@@ -330,7 +330,9 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
     max_restarts = 10
     nres = 0
     delta = 1e-3
-    while (nres < max_restarts) && (delta < 1e-2)    
+
+    params0 = VBMatrixFactorization.vbmf_dual_init(Y0_train, H, H0);
+    while (nres < max_restarts) && (delta < 1e-2)   
         params0 = VBMatrixFactorization.vbmf_dual_init(Y0_train, H, H0);
         d = VBMatrixFactorization.vbmf_dual!(Y0_train, params0, niter, eps = eps, verb = verb, diag_var = diag_var);
         delta = norm(params0.AHat) + norm(params0.BHat)
@@ -342,6 +344,7 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
 
     nres = 0
     delta = 1e-3
+    params1 = VBMatrixFactorization.vbmf_dual_init(Y1_train, H, H0);
     while (nres < max_restarts) && (delta < 1e-2)    
         params1 = VBMatrixFactorization.vbmf_dual_init(Y1_train, H, H0);
         d = VBMatrixFactorization.vbmf_dual!(Y1_train, params1, niter, eps = eps, verb = verb, diag_var = diag_var);
@@ -661,7 +664,7 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
 
             cv_indices = data["cvindexes"][row,:];
             # from the cv indices, choose one of the folds as validation and the rest as training
-            for fold in 1:nfolds    
+            for fold in 1:nfolds
                 print("$fold ")  
                 # select test indices
                 test_inds = cv_indices[fold]
@@ -883,9 +886,10 @@ function table_summary(class_res::Dict{String,Any}; verb::Bool = true)
     if verb
         dataset_name = inputs["dataset_name"]
         H = inputs["H"]
+        H1 = inputs["H1"]
         nclass_iter = inputs["nclass_iter"]
         method = inputs["solver"]
-        print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, $nclass_iter samples, $noise_model noise: \n \n")
+        print("\nMean classsification error, $method solver, dataset $dataset_name, H = $H, H0 = $(H-H1), $nclass_iter samples, $noise_model noise: \n \n")
         print(" perc. of known labels | error rate | EER | false pos. | false neg. | neg. samples | pos. samples \n")
         print("------------------------------------------------------------------------------------------------------\n")
         if use_cvs
