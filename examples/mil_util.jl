@@ -322,7 +322,7 @@ end
 
 Trains the classifier using the dual basis decomposition.
 """
-function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false diag_var = false)
+function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, diag_var = false)
     Y0_train, Y1_train = get_matrices(data, train_inds)
     L, M0 = size(Y0_train)
     L, M1 = size(Y1_train)
