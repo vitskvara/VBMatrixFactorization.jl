@@ -27,6 +27,7 @@ for n in inds
         table_summary(data)    
     catch e
         println("Something bad happened, probably wrong file type.")
+        println(e)
     end
     n+=1
 end

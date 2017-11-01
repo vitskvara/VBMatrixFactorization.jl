@@ -60,7 +60,40 @@ Scales down a 2 dimensional array so it has approx. standard normal distribution
 function scaleY(Y::Array{Float32,2})
     Y64 = convert(Array{Float64,2}, Y)
     Y64 = scaleY(Y64)
-    return convert(Array{Float32,2}, Y64)
+    return Y64
+    #return convert(Array{Float32,2}, Y64)
+end
+
+"""
+    preprocess(Y::Array{Float64,2}, lambda::Float64; verb = false)
+
+Scales Y to be normal, deletes unnecessary rows and then multiplies it by lambda
+for better algorithm convergence.
+"""
+function preprocess(Y::Array{Float64,2}, lambda::Float64; verb = false)
+    sY = scaleY(Y)
+    rowsums = sum(abs(sY), 2)
+    L, M = size(Y)
+    used_rows = 1:L
+    used_rows = used_rows[rowsums .>= 1e-5] 
+    # there are either zeroes or the variance is so small that the row carries no information
+
+    if verb
+        println("Original problem size: $L rows, $(L-size(used_rows)[1]) rows not relevant and are not used.")
+    end
+
+    return lambda*sY[used_rows,:]
+end
+
+"""
+    preprocess(Y::Array{Float32,2}, lambda::Float64; verb = false)
+
+Scales Y to be normal, deletes unnecessary rows and then multiplies it by lambda
+for better algorithm convergence.
+"""
+function preprocess(Y::Array{Float32,2}, lambda::Float64; verb = false)
+    Y64 = convert(Array{Float64,2}, Y)
+    return preprocess(Y64, lambda, verb = verb)
 end
 
 """

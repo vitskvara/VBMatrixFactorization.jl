@@ -114,7 +114,7 @@ function train(data::Dict{String,Any}, bag_ids, solver::String, H::Int, niter::I
         VBMatrixFactorization.vbmf!(Y1, res1, niter, eps = eps, est_covs = true, est_var = true, verb = verb)
     elseif solver == "sparse"
         # this is to decide whether to compute full covariance of A or just the diagonal
-        if (H*M0 > 200) || (H*M1 > 200)
+        if (H*M0 > 800) || (H*M1 > 800)
             full_cov = false
         else
             full_cov = true
@@ -171,7 +171,8 @@ function rls(Y::Array{Float64, 2}, B::Array{Float64, 2}, lambda::Float64)
 end
 
 """
-    vbls(Y::Array{Float64, 2}, params, niter::Int)
+    vbls(Y::Array{Float64, 2}, params, niter::Int;
+    diag_var::Bool = false, full_cov::Bool = false)
 
 Solves the factorization Y = BA^T + E for fixed B and CB that is stored in params.
 """
@@ -215,10 +216,10 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
         params = VBMatrixFactorization.vbmf_init(Y, old_params.H,
          sigma2 = old_params.sigma2)
         # copy the parameters that wont change
-        params.BHat = old_params.BHat
-        params.SigmaB = old_params.SigmaB
-        params.CB = old_params.CB
-        params.invCB = old_params.invCB
+        params.BHat = copy(old_params.BHat)
+        params.SigmaB = copy(old_params.SigmaB)
+        params.CB = copy(old_params.CB)
+        params.invCB = copy(old_params.invCB)
         return params
     elseif typeof(old_params) == VBMatrixFactorization.vbmf_sparse_parameters
         # init a new structure
@@ -226,22 +227,23 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
                 beta0 = old_params.beta0, gamma0 = old_params.gamma0, delta0 = old_params.delta0,
                 eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
-        params.BHat = old_params.BHat
-        params.SigmaB = old_params.SigmaB
-        params.CB = old_params.CB
+        params.BHat = copy(old_params.BHat)
+        params.SigmaB = copy(old_params.SigmaB)
+        params.CB = copy(old_params.CB)
         params.gamma = old_params.gamma
-        params.delta = old_params.delta
+        params.delta = copy(old_params.delta)
+        params.invCB = copy(old_params.invCB)
         return params
     elseif typeof(old_params) == VBMatrixFactorization.vbmf_dual_parameters
         params = VBMatrixFactorization.vbmf_dual_init(Y, old_params.H, old_params.H0, 
             gamma0 = old_params.gamma0, delta0 = old_params.delta0,
             eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
-        params.BHat = old_params.BHat
-        params.SigmaB = old_params.SigmaB
-        params.CB = old_params.CB
+        params.BHat = copy(old_params.BHat)
+        params.SigmaB = copy(old_params.SigmaB)
+        params.CB = copy(old_params.CB)
         params.gamma = old_params.gamma
-        params.delta = old_params.delta
+        params.delta = copy(old_params.delta)
         # also the priors
         params.alpha00 = old_params.alpha00
         params.beta00 = old_params.beta00
@@ -255,11 +257,11 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
             gamma0 = old_params.gamma0, delta0 = old_params.delta0,
             eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
-        params0.BHat = old_params.BHat
-        params0.SigmaB = old_params.SigmaB
-        params0.CB = old_params.CB
+        params0.BHat = copy(old_params.BHat)
+        params0.SigmaB = copy(old_params.SigmaB)
+        params0.CB = copy(old_params.CB)
         params0.gamma = old_params.gamma
-        params0.delta = old_params.delta
+        params0.delta = copy(old_params.delta)
         # also the priors
         params0.alpha01 = old_params.alpha01
         params0.beta01 = old_params.beta01
@@ -272,11 +274,11 @@ function copy_vbmf_params(Y::Array{Float64, 2}, old_params)
             gamma0 = old_params.gamma0, delta0 = old_params.delta0,
             eta0 = old_params.eta0, zeta0 = old_params.zeta0)
         # copy the parameters that wont change
-        params1.BHat = old_params.BHat
-        params1.SigmaB = old_params.SigmaB
-        params1.CB = old_params.CB
+        params1.BHat = copy(old_params.BHat)
+        params1.SigmaB = copy(old_params.SigmaB)
+        params1.CB = copy(old_params.CB)
         params1.gamma = old_params.gamma
-        params1.delta = old_params.delta
+        params1.delta = copy(old_params.delta)
         # also the priors
         params1.alpha01 = old_params.alpha01
         params1.beta01 = old_params.beta01
@@ -330,11 +332,23 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
     max_restarts = 10
     nres = 0
     delta = 1e-3
+    if M0*H > 3200
+        full_cov = false
+    else
+        full_cov = true
+    end
+
+    # use this on local machines
+    maxM = Int(floor(3200/H))
+    inds0 = sample(1:M0, min(maxM, M0), replace = false)
+    Y0_train = Y0_train[:, inds0]
+    full_cov = true
 
     params0 = VBMatrixFactorization.vbmf_dual_init(Y0_train, H, H0);
     while (nres < max_restarts) && (delta < 1e-2)   
         params0 = VBMatrixFactorization.vbmf_dual_init(Y0_train, H, H0);
-        d = VBMatrixFactorization.vbmf_dual!(Y0_train, params0, niter, eps = eps, verb = verb, diag_var = diag_var);
+        d = VBMatrixFactorization.vbmf_dual!(Y0_train, params0, niter, eps = eps, verb = verb, 
+            diag_var = diag_var, full_cov = full_cov);
         delta = norm(params0.AHat) + norm(params0.BHat)
         nres+=1
     end
@@ -344,10 +358,22 @@ function train_dual(data, train_inds, H, H0, niter; eps = 1e-4, verb = false, di
 
     nres = 0
     delta = 1e-3
+    if M1*H > 3200
+        full_cov = false
+    else
+        full_cov = true
+    end
+#    if full_cov
+#        println("computing full covariance")
+#   end
+    inds1 = sample(1:M1, min(maxM, M1), replace = false)
+    Y1_train = Y1_train[:, inds1]
+    full_cov = true
     params1 = VBMatrixFactorization.vbmf_dual_init(Y1_train, H, H0);
     while (nres < max_restarts) && (delta < 1e-2)    
         params1 = VBMatrixFactorization.vbmf_dual_init(Y1_train, H, H0);
-        d = VBMatrixFactorization.vbmf_dual!(Y1_train, params1, niter, eps = eps, verb = verb, diag_var = diag_var);
+        d = VBMatrixFactorization.vbmf_dual!(Y1_train, params1, niter, eps = eps, verb = verb, 
+            diag_var = diag_var, full_cov = full_cov);
         delta = norm(params1.AHat) + norm(params1.BHat)
         nres+=1
     end
@@ -376,7 +402,7 @@ function factorize_bag(Y::Array{Float64,2}, params; niter = 20)
     params0.CB = params.CB[1:(H-H1)]
     params0.gamma = params.gamma
     params0.delta = params.delta[1:(H-H1)]
-    if params0.M*(H-H1) < 400
+    if params0.M*(H-H1) < 1600
         full_cov = true
     else
         full_cov = false
@@ -641,10 +667,11 @@ inputs["use_cvs"] = true # should cv_indexes be used instead of p_vec?
 inputs["diag_var"] = true # should homo- or heteroscedastic noise model be used?
 inputs["class_alg"] = "ols" #/"rls"/"vbls"/"lower bound"/"dual" - how should the classification be computed
 """
-function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::Bool = true)
+function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}, fname; verb::Bool = true)
     p_vec = inputs["p_vec"]
     nclass_iter = inputs["nclass_iter"]
     np = size(p_vec)[1]
+    full_cvs = inputs["full_cvs"]
 
     res_mat = Array{Any,2}(nclass_iter*np, 7) # matrix of resulting error numbers 
 
@@ -658,7 +685,7 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
         cv_res_mat[:, 2:end] = -1.0
 
         n = 1
-        for row in 1:nrows
+        for row in 1:1
             println("row = $(row)")
             print("fold = ")
 
@@ -667,12 +694,22 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
             for fold in 1:nfolds
                 print("$fold ")  
                 # select test indices
-                test_inds = cv_indices[fold]
-                train_inds = Array{Int64,1}()
-                # create the train indices array
-                for j in 1:nfolds
-                    if j!=fold
-                        train_inds = cat(1, train_inds, cv_indices[j])
+                if full_cvs
+                    test_inds = cv_indices[fold]
+                    train_inds = Array{Int64,1}()
+                    # create the train indices array
+                    for j in 1:nfolds
+                        if j!=fold
+                            train_inds = cat(1, train_inds, cv_indices[j])
+                        end
+                    end
+                else # for training, use just one fold and test on the rest
+                    train_inds = cv_indices[fold]
+                    test_inds = Array{Int64,1}()
+                    for j in 1:nfolds
+                        if j!=fold
+                            test_inds = cat(1, test_inds, cv_indices[j])
+                        end
                     end
                 end
 
@@ -687,6 +724,17 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                     println(y)
                     cv_res_mat[n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
                 end       
+                
+                # save the line to a temp file
+                if isfile(fname)
+                    contents = load(fname)
+                    mat = contents["res_mat"]
+                    mat = cat(1, mat, cv_res_mat[n,:]')
+                    save(fname, "res_mat", mat, "inputs", inputs)       
+                else
+                    save(fname, "res_mat", cv_res_mat[n,:]', "inputs", inputs)   
+                end
+
                 n += 1 
             end 
             println("")
@@ -713,7 +761,17 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
                 warn("Something went wrong during vbmf, no output produced.")
                 println(y)
                 res_mat[(ip-1)*nclass_iter+n,2:end] = [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0] 
-            end          
+            end        
+
+            # save the line to a temp file
+            if isfile(fname)
+                contents = load(fname)
+                mat = contents["res_mat"]
+                mat = cat(1, mat, res_mat[(ip-1)*nclass_iter+n,:]')
+                save(fname, "res_mat", mat, "inputs", inputs)       
+            else
+                save(fname, "res_mat", res_mat[(ip-1)*nclass_iter+n,:]', "inputs", inputs)   
+            end  
         end
     end
     println("")
@@ -724,6 +782,8 @@ function validate_dataset(data::Dict{String,Any}, inputs::Dict{Any, Any}; verb::
         res = res_mat
     end
 
+    rm(fname)
+
     return res
 end
 
@@ -733,7 +793,7 @@ end
 Wrapper for validate_dataset() that takes a whole folder of inputs, some settings and computes data for evaluation of the vbmf 
 classification.
 """
-function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, input_path::String, output_path::String; 
+function validate_datasets(inputs::Dict{Any, Any}, file_inds, input_path::String, output_path::String; 
     verb::Bool = true)
 
     files = readdir(input_path)
@@ -763,31 +823,19 @@ function validate_datasets(inputs::Dict{Any, Any}, file_inds::UnitRange{Int64}, 
         # load the data
         data = load(string(mil_path, "/", file));
         
-        # now decide whether to ignore some rows
-        Y = convert(Array{Float64, 2}, data["fMat"])
-        sY = scaleY(Y)
-        rowsums = sum(abs(sY), 2)
-        L, M = size(Y)
-        used_rows = 1:L
-        used_rows = used_rows[rowsums .>= 1e-5]
-
-        if verb
-            println("Original problem size: $L rows, $(L-size(used_rows)[1]) rows not relevant and are not used.")
-        end
-
+        # decide whether to ignore some rows
         # now replace the original Y matrix with a new one
         if inputs["scale_y"]
-            data["fMat"] = copy(sY[used_rows,:])
-        else
-            data["fMat"] = copy(Y[used_rows,:])
+            data["fMat"] = VBMatrixFactorization.preprocess(data["fMat"], inputs["scale"], verb = true)
         end
 
         # perform testing of the classification on the dataset
         inputs["dataset_name"] = dataset_name
-        res_mat = validate_dataset(data, inputs, verb = false)
+        fname = string(dataset_name, "_", inputs["solver"], "_", inputs["H"], "_", inputs["nclass_iter"])
+
+        res_mat = validate_dataset(data, inputs, "$output_path/$fname.temp.jld", verb = false)
 
         # save the outputs and inputs
-        fname = string(dataset_name, "_", inputs["solver"], "_", inputs["H"], "_", inputs["nclass_iter"])
         save("$output_path/$fname.jld", "res_mat", res_mat, "inputs", inputs)
 
         if verb
@@ -813,11 +861,13 @@ function warmup(mil_path::String)
     inputs["H"] = 1 # inner dimension of the factorization
     inputs["dataset_name"] = ""
     inputs["scale_y"] = true
+    inputs["scale"] = 10.0 # how are they scaled? - could be better for numerical optimization
     inputs["use_cvs"] = false
     inputs["diag_var"] = false
     inputs["class_alg"] = "ols"
     inputs["H1"] = 1
     inputs["threshold"] = 1e-1
+    inputs["full_cvs"] = false
 
     output_path = "./warmup_garbage"
     file_inds = 1:1

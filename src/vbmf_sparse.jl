@@ -342,7 +342,7 @@ The params argument with initialized data is modified and contains the resulting
 algorithm stops.
 """
 function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_cb::Bool = true)
     priors = Dict()
 
     # create the log dictionary
@@ -370,7 +370,9 @@ function vbmf_sparse!(Y::Array{Float64, 2}, params::vbmf_sparse_parameters, nite
         updateB!(Y, params, diag_var = diag_var)
         
         updateCA!(params)
-        updateCB!(params)
+        if est_cb
+            updateCB!(params)
+        end
 
         updateSigma!(Y, params, diag_var = diag_var)
 
@@ -414,13 +416,13 @@ end
 Calls vbmf_sparse!() but copies the params_in argument so that it is not modified and can be reused.
 """
 function vbmf_sparse(Y::Array{Float64, 2}, params_in::vbmf_sparse_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_cb::Bool = true)
     # make a copy of input params
     params = copy(params_in)
 
     # run the algorithm
     d = vbmf_sparse!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
-        logdir = logdir, desc = desc, verb = verb)
+        logdir = logdir, desc = desc, verb = verb, est_cb = est_cb)
 
     return params, d
 end

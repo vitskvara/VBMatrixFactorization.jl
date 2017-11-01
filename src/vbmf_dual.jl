@@ -453,7 +453,8 @@ The params argument with initialized data is modified and contains the resulting
 algorithm stops.
 """
 function vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true,
+    est_cb::Bool = true)
     priors = Dict()
 
     # create the log dictionary
@@ -481,7 +482,9 @@ function vbmf_dual!(Y::Array{Float64, 2}, params::vbmf_dual_parameters, niter::I
         updateB!(Y, params, diag_var = diag_var)
         
         updateCA!(params)
-        updateCB!(params)
+        if est_cb
+            updateCB!(params)
+        end
 
         updateSigma!(Y, params, diag_var = diag_var)
 
@@ -533,13 +536,14 @@ end
 Calls vbmf_dual!() but copies the params_in argument so that it is not modified and can be reused.
 """
 function vbmf_dual(Y::Array{Float64, 2}, params_in::vbmf_dual_parameters, niter::Int; eps::Float64 = 1e-6,
-    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true)
+    diag_var::Bool = false, full_cov::Bool = false, logdir = "", desc = "", verb = false, est_priors = true, 
+    est_cb::Bool = true)
     # make a copy of input params
     params = copy(params_in)
 
     # run the algorithm
     d = vbmf_dual!(Y, params, niter, eps = eps, diag_var = diag_var, full_cov = full_cov, 
-        logdir = logdir, desc = desc, verb = verb, est_priors = est_priors)
+        logdir = logdir, desc = desc, verb = verb, est_priors = est_priors, est_cb = est_cb)
 
     return params, d
 end
